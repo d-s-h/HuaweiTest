@@ -24,9 +24,18 @@
     <ClCompile Include="DupFinder.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="AsyncMultiSet.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DupFinder.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="AsyncMultiSet.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="test.h">
       <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>

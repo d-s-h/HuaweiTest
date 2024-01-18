@@ -322,10 +322,8 @@ int readFile(const std::wstring& path, IBlockReadCallback& cb)
   return result;
 }
 
-struct SetEntry
-{
-  int i;
-};
+
+
 
 // Yes, the copy elision is in place, but I'd like to improve API design of the func to pass the result back not as a copy.
 std::vector<std::vector<std::string>> findIdentical(const std::string& path)
@@ -465,6 +463,8 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
       std::wcout << fi.name << L" size " << fi.size << L" hash " << fi.contentHash << std::endl;
     }
   }
+
+
 
   return result;
 }
