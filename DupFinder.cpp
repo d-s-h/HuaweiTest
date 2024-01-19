@@ -80,12 +80,20 @@ Further improvements:
 #include <vector>
 #include <unordered_map>
 #include <cassert>
+#include <algorithm>
 
 #include "DupFinder.h"
 #include "Hash.h"
 
 int gError = 0; // I could use exceptions or change func API to pass an error code but use the global for simplicity.
 HashFunction* gHashFunction = MurmurHash64A;
+
+struct Stats
+{
+  uint64_t totalBytesRead = 0;
+};
+
+Stats gStats;
 
 // Define the size of the buffer for reading from the file
 constexpr DWORD BUFFER_SIZE = 4096;
@@ -109,8 +117,10 @@ bool operator== (SizeHashKey const& lhs, SizeHashKey const& rhs)
 // Structure to hold information about an asynchronous file operation
 struct FileIOData
 {
+  FileIOData() : fileHandle(nullptr, HandleDeleter()) {}
+
   OVERLAPPED overlapped;
-  HANDLE fileHandle;
+  UniqueHandle fileHandle;
   CHAR buffer[BUFFER_SIZE];
 };
 
@@ -181,12 +191,44 @@ public:
   }
 };
 
-int readFile(const std::wstring& path, IBlockReadCallback& cb)
+struct FileOp
 {
-  int result = 0;
+  DWORD bytesRead = 0;
+  ULONG_PTR key = NULL;
+  LPOVERLAPPED overlapped = NULL;
+};
+
+constexpr int MAX_CONCURRENT_IO = 8;
+
+FileOp gFileOpPool[MAX_CONCURRENT_IO];
+
+constexpr int FILE_BLOCK_SIZE = 4 * 1024 * 1024; // 4 MB
+
+class MemBlockAllocator
+{
+public:
+  MemBlockAllocator(uint64_t blockSize, uint64_t count)
+  {
+    mMemBlockPool.resize(blockSize * count);
+    mFreeBlockMask.resize(count, true);
+  }
+
+private:
+  uint64_t mBlockSize;
+  uint64_t mTotalBlockCount;
+  std::vector<uint8_t> mMemBlockPool;
+  std::vector<bool> mFreeBlockMask;
+};
+
+size_t readFile(const std::wstring& path, IBlockReadCallback& cb)
+{
+  static MemBlockAllocator sBlockAllocator(FILE_BLOCK_SIZE, MAX_CONCURRENT_IO);
+  size_t totalBytesRead = 0;
+  // Create and initialize the data structure for I/O operations
+  std::unique_ptr<FileIOData> ioData = std::make_unique<FileIOData>();
 
   // Open the file for asynchronous reading
-  UniqueHandle fileHandle(CreateFile(
+  ioData->fileHandle.reset(CreateFile(
     path.c_str(),
     GENERIC_READ,
     FILE_SHARE_READ,
@@ -194,13 +236,13 @@ int readFile(const std::wstring& path, IBlockReadCallback& cb)
     OPEN_EXISTING,
     FILE_FLAG_OVERLAPPED,
     nullptr
-  ), HandleDeleter());
+  ));
 
-  if (fileHandle.get() == INVALID_HANDLE_VALUE)
+  if (ioData->fileHandle.get() == INVALID_HANDLE_VALUE)
   {
     std::cerr << "Error opening file." << std::endl;
     gError = 1;
-    return result;
+    return totalBytesRead;
   }
 
   // Create an I/O Completion Port
@@ -210,53 +252,228 @@ int readFile(const std::wstring& path, IBlockReadCallback& cb)
   {
     std::cerr << "Error creating I/O Completion Port." << std::endl;
     gError = 1;
-    return result;
+    return totalBytesRead;
   }
 
   // Associate the file handle with the completion port
   // NumberOfConcurrentThreads parameter is ignored if the ExistingCompletionPort parameter is not NULL.
-  if (CreateIoCompletionPort(fileHandle.get(), completionPort.get(), 0, 0) == nullptr)
+  if (CreateIoCompletionPort(ioData->fileHandle.get(), completionPort.get(), 0, 0) == nullptr)
   {
     std::cerr << "Error associating file handle with I/O Completion Port." << std::endl;
     gError = 1;
-    return result;
+    return totalBytesRead;
   }
-
-  // Create and initialize the data structure for I/O operations
-  std::unique_ptr<FileIOData> ioData = std::make_unique<FileIOData>();
-  ioData->fileHandle = fileHandle.get();
 
   // Initialize the overlapped structure
   ZeroMemory(&ioData->overlapped, sizeof(OVERLAPPED));
 
-  // Perform the asynchronous read operation
-  if (!ReadFile(fileHandle.get(), ioData->buffer, BUFFER_SIZE, nullptr, &ioData->overlapped))
+  // Wait for completion of the asynchronous operation
+  DWORD bytesRead = 0;
+  ULONG_PTR key = NULL;
+  LPOVERLAPPED overlapped = NULL;
+  do
   {
-    if (GetLastError() != ERROR_IO_PENDING)
+    // Perform the asynchronous read operation
+    if (!ReadFile(ioData->fileHandle.get(), ioData->buffer, BUFFER_SIZE, nullptr, &ioData->overlapped))
     {
-      std::cerr << "Error initiating asynchronous read." << std::endl;
+      if (GetLastError() != ERROR_IO_PENDING)
+      {
+        std::cerr << "Error initiating asynchronous read." << std::endl;
+        gError = 1;
+        return totalBytesRead;
+      }
+    }
+
+    if (GetQueuedCompletionStatus(completionPort.get(), &bytesRead, &key, &overlapped, INFINITE))
+    {
+      // Process the completed operation
+      cb(reinterpret_cast<const uint8_t*>(ioData->buffer), bytesRead);
+      totalBytesRead += bytesRead;
+
+      overlapped->Offset += bytesRead;
+      gStats.totalBytesRead += bytesRead;
+    }
+    else
+    {
+      bool success = false;
+      // Check the result of the asynchronous read without waiting (forth parameter FALSE). 
+      success = GetOverlappedResult(ioData->fileHandle.get(), overlapped, &bytesRead, FALSE);
+
+      if (!success)
+      {
+        if (GetLastError() != ERROR_HANDLE_EOF)
+        {
+          std::cerr << "Error completing asynchronous read." << std::endl;
+          gError = 1;
+        }
+        break;
+      }
+    }
+  } while (bytesRead > 0);
+
+  gError = 0;
+  return totalBytesRead;
+}
+
+size_t compareFiles(const std::wstring& path1, const std::wstring& path2, int& compareResult)
+{
+  size_t totalBytesRead = 0;
+
+  // Create an I/O Completion Port
+  DWORD threadCount = 0;
+  UniqueHandle completionPort(CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, threadCount), HandleDeleter());
+  if (completionPort == nullptr)
+  {
+    std::cerr << "Error creating I/O Completion Port." << std::endl;
+    gError = 1;
+    return totalBytesRead;
+  }
+
+  // Create and initialize the data structure for I/O operations
+  std::vector<std::unique_ptr<FileIOData>> ioData(2);
+  const std::wstring* files[2] = { &path1, &path2 };
+
+  for(int i = 0; i < ioData.size(); ++i)
+  {
+    ioData[i] = std::make_unique<FileIOData>();
+
+    // Initialize the overlapped structure
+    ZeroMemory(&ioData[i]->overlapped, sizeof(OVERLAPPED));
+
+    // Open the file for asynchronous reading
+    ioData[i]->fileHandle.reset(CreateFile(
+      files[i]->c_str(),
+      GENERIC_READ,
+      FILE_SHARE_READ,
+      nullptr,
+      OPEN_EXISTING,
+      FILE_FLAG_OVERLAPPED,
+      nullptr
+    ));
+
+    if (ioData[i]->fileHandle.get() == INVALID_HANDLE_VALUE)
+    {
+      std::cerr << "Error opening file." << std::endl;
       gError = 1;
-      return result;
+      return totalBytesRead;
+    }
+
+    // Associate the file handle with the completion port
+    // NumberOfConcurrentThreads parameter is ignored if the ExistingCompletionPort parameter is not NULL.
+    if (CreateIoCompletionPort(ioData[i]->fileHandle.get(), completionPort.get(), i, 0) == nullptr)
+    {
+      std::cerr << "Error associating file handle with I/O Completion Port." << std::endl;
+      gError = 1;
+      return totalBytesRead;
     }
   }
 
   // Wait for completion of the asynchronous operation
-  DWORD bytesRead;
-  ULONG_PTR key;
-  LPOVERLAPPED overlapped;
+  DWORD bytesRead1 = 0;
+  DWORD bytesRead2 = 0;
+  ULONG_PTR key1 = NULL;
+  ULONG_PTR key2 = NULL;
+  LPOVERLAPPED overlapped1 = NULL;
+  LPOVERLAPPED overlapped2 = NULL;
+  compareResult = 0;
+  do
+  {
+    // Perform the asynchronous read operation
+    for(int i = 0; i < ioData.size(); ++i)
+    {
+      if (!ReadFile(ioData[i]->fileHandle.get(), ioData[i]->buffer, BUFFER_SIZE, nullptr, &ioData[i]->overlapped))
+      {
+        if (GetLastError() != ERROR_IO_PENDING)
+        {
+          std::cerr << "Error initiating asynchronous read." << std::endl;
+          gError = 1;
+          return totalBytesRead;
+        }
+      }
+    }
 
-  if (GetQueuedCompletionStatus(completionPort.get(), &bytesRead, &key, &overlapped, INFINITE))
-  {
-    // Process the completed operation
-    cb(reinterpret_cast<const uint8_t*>(ioData->buffer), bytesRead);
-  }
-  else
-  {
-    std::cerr << "Error completing asynchronous read." << std::endl;
-  }
+    bool status1 = false;
+    bool status2 = false;
+    status1 = GetQueuedCompletionStatus(completionPort.get(), &bytesRead1, &key1, &overlapped1, INFINITE);
+    status2 = GetQueuedCompletionStatus(completionPort.get(), &bytesRead2, &key2, &overlapped2, INFINITE);
+    assert(key1 == 0);
+    assert(key2 == 1);
+    if (status1 && status2)
+    {
+      totalBytesRead += bytesRead1 + bytesRead2;
+      gStats.totalBytesRead += bytesRead1 + bytesRead2;
+
+      // Process the completed operations
+      if (bytesRead1 == bytesRead2)
+      {
+        overlapped1->Offset += bytesRead1;
+        overlapped2->Offset += bytesRead2;
+
+        compareResult = std::memcmp(ioData[0]->buffer, ioData[1]->buffer, bytesRead1);
+        if (compareResult != 0)
+        {
+          break;
+        }
+      }
+      else
+      {
+        compareResult = bytesRead1 < bytesRead2;
+        break;
+      }
+    }
+    else
+    {
+      bool success = false;
+      success = GetOverlappedResult(ioData[0]->fileHandle.get(), overlapped1, &bytesRead1, FALSE);
+
+      if (!success)
+      {
+        if (GetLastError() != ERROR_HANDLE_EOF)
+        {
+          std::cerr << "Error completing asynchronous read." << std::endl;
+          gError = 1;
+        }
+        break;
+      }
+    }
+  } while (bytesRead1 == bytesRead2 && bytesRead1 > 0 && compareResult == 0);
 
   gError = 0;
-  return result;
+  return totalBytesRead;
+}
+
+void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet& set)
+{
+  DataComparer comparer;
+
+  std::vector<int> insertIdxList(files.size());
+
+  for (int i = 0; i < files.size(); ++i)
+  {
+    insertIdxList[i] = i;
+  }
+
+  do
+  {
+    comparer.getQueue().clear();
+
+    for (int i = 0; i < insertIdxList.size(); ++i)
+    {
+      set.insert(insertIdxList[i], &comparer);
+    }
+
+    insertIdxList.clear();
+    for (auto& e : comparer.getQueue())
+    {
+      const FileInfo* fi1 = files[e.first];
+      const FileInfo* fi2 = files[e.second];
+      int res = 0;
+      size_t bytesRead = compareFiles(fi1->name, fi2->name, res);
+      comparer.addCompareResult(e.first, e.second, res);
+      insertIdxList.push_back(e.first);
+    }
+  } while (comparer.getQueue().size() > 0);
+
 }
 
 // Yes, the copy elision is in place, but I'd like to improve API design of the func to pass the result back not as a copy.
@@ -352,9 +569,11 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
 
     FileHasher fileHasher;
 
-    readFile(fi.name, fileHasher);
+    size_t totalBytesRead = readFile(fi.name, fileHasher);
+    assert(totalBytesRead == fi.size);
     fi.contentHash = fileHasher.getHash();
     fi.hashed = true;
+    
   }
 
   for (size_t i = 0; i < map.bucket_count(); ++i)
@@ -398,25 +617,62 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
     }
   }
 
+  // Compare content of files with the same size/hash (if there is more than 1 file)
+  for (auto& it : fileHashMap)
+  {
+    SizeHashEntry& e = it.second;
+    if (e.files.size() > 1)
+    {
+      findDupContent(e.files, e.multiSet);
+    }
+  }
+
   std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+
   // Fill out result
   for (auto& it : fileHashMap)
   {
     SizeHashEntry& e = it.second;
     if (e.files.size() > 0)
     {
-      std::vector<std::string> dups;
-      for (size_t i = 0; i < e.files.size(); ++i)
+      if (e.files.size() > 1)
       {
-        const FileInfo* fi = e.files[i];
-        std::string narrow = converter.to_bytes(fi->name);
-        dups.emplace_back(narrow);
+        // Dup content file indices are stored in the set
+        AsyncSetIterator itSet = e.multiSet.getIterator();
+        while (itSet.hasNext())
+        {
+          std::vector<std::string> dups;
+          std::vector<int> indices = itSet.next();
+          for(int i = 0; i < indices.size(); ++i)
+          {
+            int fileIdx = indices[i];
+            const FileInfo* fi = e.files[fileIdx];
+            std::string narrow = converter.to_bytes(fi->name);
+            dups.emplace_back(narrow);
 
-        std::cout << ((i != 0) ? "  " : "") << narrow << " size " << fi->size << " hash " << fi->contentHash << std::endl;
+            std::cout << ((i != 0) ? "  " : "") << narrow << " size " << fi->size << " hash " << std::hex << fi->contentHash << std::dec << std::endl;
+          }
+          std::sort(dups.begin(), dups.end());
+          result.emplace_back(dups);
+        }
       }
-      result.emplace_back(dups);
+      else
+      {
+        const FileInfo* fi = e.files[0];
+        std::string narrow = converter.to_bytes(fi->name);
+        std::vector<std::string> fileNames = { narrow };
+        result.emplace_back(fileNames);
+        std::cout << narrow << " size " << fi->size << " hash " << std::hex << fi->contentHash << std::dec << std::endl;
+      }
     }
   }
+
+  std::sort(result.begin(), result.end(),
+    [](const auto& l, const auto& r)
+    {
+      return l[0] < r[0];
+    }
+  );
 
   return result;
 }

@@ -14,8 +14,7 @@
 #include "AsyncMultiSet.h"
 #include "Hash.h"
 
-
-//extern std::vector<std::vector<std::string>> findIdentical(const std::string& path);
+static const std::string TEST_FOLDER = "test_gen\\";
 
 #define TEST_ASSERT(cond, format, ...) \
   do { \
@@ -28,7 +27,7 @@
   } while(false);
 
 
-void generateFile(std::filesystem::path path, size_t size, unsigned int randomSeed)
+void generateBinaryFile(const std::filesystem::path & path, size_t size, unsigned int randomSeed)
 {
 	std::filesystem::create_directories(path.parent_path());
 	std::fstream file;
@@ -57,6 +56,18 @@ void generateFile(std::filesystem::path path, size_t size, unsigned int randomSe
 	file.close();
 }
 
+void generateTextFile(const std::filesystem::path& path, const std::string& text)
+{
+	std::filesystem::create_directories(path.parent_path());
+	std::fstream file;
+	file.open(path, std::ios::app);
+	if (file.is_open())
+	{
+		file << text;
+	}
+	file.close();
+}
+
 /*
 
 Testcases:
@@ -72,42 +83,7 @@ struct TestFile
 	std::string content;
 };
 
-class DataComparer : public IAsyncCompare<int>
-{
-public:
-	using Queue = std::vector<std::pair<int, int>>;
-
-	DataComparer() {}
-
-	bool getCompare(const int& l, const int& r, int& result) override
-	{
-		auto it = mCompareResultMap.find({ l, r });
-		if (it != mCompareResultMap.end())
-		{
-			result = it->second;
-			return true;
-		}
-		return false;
-	}
-
-	void asyncCompare(const int& l, const int& r) override
-	{
-		mQueue.push_back({l , r});
-	}
-
-	void addCompareResult(const int& l, const int& r, int8_t res)
-	{
-		mCompareResultMap.insert({ {l, r}, res });
-	}
-
-	Queue& getQueue() { return mQueue; }
-
-private:
-	std::map< std::pair<int, int>, int8_t> mCompareResultMap;
-	Queue mQueue;
-};
-
-bool testcase1()
+bool testcase_MultiSet()
 {
 	std::vector<std::string> content =
 	{
@@ -258,7 +234,7 @@ bool testcase1()
 
 // Differ by size
 // The same size are identical
-bool testcase2()
+bool testcase_GenericTest1()
 {
 	const std::string testFolder = "test_gen\\";
 	// Clean up previous runs if any
@@ -266,11 +242,11 @@ bool testcase2()
 
 	// Setup test
 	size_t MB = 1024 * 1024;
-	generateFile(testFolder + "gen1.bin", 3 * MB, 0);
-	generateFile(testFolder + "gen11.bin", 3 * MB, 0);
-	generateFile(testFolder + "gen2.bin", 4 * MB, 0);
-	generateFile(testFolder + "gen3.bin", 5 * MB, 0);
-	generateFile(testFolder + "gen4.bin", 5 * MB, 0);
+	generateBinaryFile(testFolder + "gen1.bin", 3 * MB, 0);
+	generateBinaryFile(testFolder + "gen11.bin", 3 * MB, 0);
+	generateBinaryFile(testFolder + "gen2.bin", 4 * MB, 0);
+	generateBinaryFile(testFolder + "gen3.bin", 5 * MB, 0);
+	generateBinaryFile(testFolder + "gen4.bin", 5 * MB, 0);
 
 	// Test
 	std::vector<std::vector<std::string>> fileList = findIdentical(testFolder);
@@ -291,22 +267,21 @@ bool testcase2()
 // Differ by size
 // Content is different
 // Hashes are different
-bool testcase3()
+bool testcase_DiffHash()
 {
-	const std::string testFolder = "test_gen\\";
 	// Clean up previous runs if any
-	std::filesystem::remove_all(testFolder);
+	std::filesystem::remove_all(TEST_FOLDER);
 
 	// Setup test
 	size_t MB = 1024 * 1024;
-	generateFile(testFolder + "gen1.bin", 3 * MB, 0);
-	generateFile(testFolder + "gen2.bin", 3 * MB, 837462);	// Same size but different content
-	generateFile(testFolder + "gen3.bin", 3 * MB, 374852);	// Same size but different content
-	generateFile(testFolder + "gen4.bin", 3 * MB, 938456);	// Same size but different content
+	generateBinaryFile(TEST_FOLDER + "gen1.bin", 3 * MB, 0);
+	generateBinaryFile(TEST_FOLDER + "gen2.bin", 3 * MB, 837462);	// Same size but different content
+	generateBinaryFile(TEST_FOLDER + "gen3.bin", 3 * MB, 374852);	// Same size but different content
+	generateBinaryFile(TEST_FOLDER + "gen4.bin", 3 * MB, 938456);	// Same size but different content
 
 	// Test
 	//setHashFunction(simpleHash);
-	std::vector<std::vector<std::string>> fileList = findIdentical(testFolder);
+	std::vector<std::vector<std::string>> fileList = findIdentical(TEST_FOLDER);
 
 	TEST_ASSERT(fileList.size() == 4, "");
 	
@@ -322,25 +297,26 @@ bool testcase3()
 	return true;
 }
 
-// Differ by size
+// Same by size
 // Content is different
 // Hashes are identical
-bool testcase4()
+bool testcase_SameSizeHash()
 {
-	const std::string testFolder = "test_gen\\";
 	// Clean up previous runs if any
-	std::filesystem::remove_all(testFolder);
+	std::filesystem::remove_all(TEST_FOLDER);
 
 	// Setup test
 	size_t MB = 1024 * 1024;
-	generateFile(testFolder + "gen1.bin", 3 * MB, 0);
-	generateFile(testFolder + "gen2.bin", 3 * MB, 837462);	// Same size but different content
-	generateFile(testFolder + "gen3.bin", 3 * MB, 374852);	// Same size but different content
-	generateFile(testFolder + "gen4.bin", 3 * MB, 938456);	// Same size but different content
+	generateBinaryFile(TEST_FOLDER + "gen1.bin", 3 * MB, 0);
+	generateBinaryFile(TEST_FOLDER + "gen2.bin", 3 * MB, 837462);	// Same size but different content
+	generateBinaryFile(TEST_FOLDER + "gen3.bin", 3 * MB, 374852);	// Same size but different content
+	generateBinaryFile(TEST_FOLDER + "gen4.bin", 3 * MB, 938456);	// Same size but different content
+	generateBinaryFile(TEST_FOLDER + "gen44.bin", 3 * MB, 938456);	// Same content
+	generateBinaryFile(TEST_FOLDER + "gen444.bin", 3 * MB, 938456);	// Same content
 
 	// Test
-	setHashFunction(constantHash);
-	std::vector<std::vector<std::string>> fileList = findIdentical(testFolder);
+	setHashFunction(constantHash);	// Generate the same hash for all files
+	std::vector<std::vector<std::string>> fileList = findIdentical(TEST_FOLDER);
 
 	TEST_ASSERT(fileList.size() == 4, "");
 
@@ -350,8 +326,30 @@ bool testcase4()
 	TEST_ASSERT(fileList[1][0] == "gen2.bin", "");
 	TEST_ASSERT(fileList[2].size() == 1, "");
 	TEST_ASSERT(fileList[2][0] == "gen3.bin", "");
-	TEST_ASSERT(fileList[3].size() == 1, "");
+	TEST_ASSERT(fileList[3].size() == 3, "");
 	TEST_ASSERT(fileList[3][0] == "gen4.bin", "");
+	TEST_ASSERT(fileList[3][1] == "gen44.bin", "");
+	TEST_ASSERT(fileList[3][2] == "gen444.bin", "");
+
+	return true;
+}
+
+bool testcase_SmallFiles()
+{
+	// Clean up previous runs if any
+	setHashFunction(MurmurHash64A);
+	std::filesystem::remove_all(TEST_FOLDER);
+
+	// Setup test
+	generateBinaryFile(TEST_FOLDER + "gen1.bin", 4, 0);
+	generateBinaryFile(TEST_FOLDER + "gen2.bin", 8, 0);
+	generateBinaryFile(TEST_FOLDER + "gen3.bin", 1024, 0);
+	generateBinaryFile(TEST_FOLDER + "gen4.bin", 10000, 0);
+	generateTextFile(TEST_FOLDER + "gen.txt", "hello");
+
+	std::vector<std::vector<std::string>> fileList = findIdentical(TEST_FOLDER);
+
+	TEST_ASSERT(fileList.size() == 5, "");
 
 	return true;
 }
@@ -363,18 +361,22 @@ void testsuite()
 	//int tests = 0;
 	int testPassed = 0;
 	FuncPtr* tests[] = {
-		//testcase1,
-		testcase2,
-		testcase3,
-		testcase4
+		testcase_MultiSet,
+		testcase_GenericTest1,
+		testcase_DiffHash,
+		testcase_SameSizeHash,
+		testcase_SmallFiles
 	};
 	
-	for (auto& t : tests)
+	int testCount = sizeof(tests) / sizeof(tests[0]);
+	for (int i = 0; i < testCount; ++i)
 	{
-		testPassed += t();
+		printf("Executing test %d...\n", i);
+		bool success = tests[i]();
+		testPassed += success;
+		printf("Test %d %s\n", i, (success) ? "succeed" : "FAILED");
 	}
 	
-	int testCount = sizeof(tests) / sizeof(tests[0]);
 
 	printf("Tests Passed %d/%d\n", testPassed, testCount);
 }

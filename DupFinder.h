@@ -5,6 +5,8 @@
 #include <unordered_map>
 #include <set>
 
+#include "AsyncMultiSet.h"
+
 struct FileInfo
 {
   uint64_t size = 0;
@@ -36,13 +38,11 @@ struct SizeHashKeyHash
   }
 };
 
-using DupSet = std::set<DupSetEntry, decltype(ContentCompare)>;
-
 struct SizeHashEntry
 {
   SizeHashEntry(){}
   std::vector<const FileInfo*> files;
-  DupSet* dupSet;
+  AsyncMultiSet multiSet;
 };
 
 
