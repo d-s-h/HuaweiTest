@@ -82,8 +82,10 @@ Further improvements:
 #include <cassert>
 
 #include "DupFinder.h"
+#include "Hash.h"
 
 int gError = 0; // I could use exceptions or change func API to pass an error code but use the global for simplicity.
+HashFunction* gHashFunction = MurmurHash64A;
 
 // Define the size of the buffer for reading from the file
 constexpr DWORD BUFFER_SIZE = 4096;
@@ -112,83 +114,13 @@ struct FileIOData
   CHAR buffer[BUFFER_SIZE];
 };
 
-//-----------------------------------------------------------------------------
-// MurmurHash2, 64-bit versions, by Austin Appleby
-// The same caveats as 32-bit MurmurHash2 apply here - beware of alignment 
-// and endian-ness issues if used across multiple platforms.
-// 64-bit hash for 64-bit platforms
-uint64_t MurmurHash64A(const void* key, int len, uint64_t seed)
+void setHashFunction(HashFunction* func)
 {
-  const uint64_t m = 0xc6a4a7935bd1e995;
-  const int r = 47;
-
-  uint64_t h = seed ^ (len * m);
-
-  const uint64_t* data = (const uint64_t*)key;
-  const uint64_t* end = data + (len / 8);
-
-  while (data != end)
-  {
-    uint64_t k = *data++;
-
-    k *= m;
-    k ^= k >> r;
-    k *= m;
-
-    h ^= k;
-    h *= m;
-  }
-
-  const unsigned char* data2 = (const unsigned char*)data;
-
-  switch (len & 7)
-  {
-  case 7: h ^= uint64_t(data2[6]) << 48;
-  case 6: h ^= uint64_t(data2[5]) << 40;
-  case 5: h ^= uint64_t(data2[4]) << 32;
-  case 4: h ^= uint64_t(data2[3]) << 24;
-  case 3: h ^= uint64_t(data2[2]) << 16;
-  case 2: h ^= uint64_t(data2[1]) << 8;
-  case 1: h ^= uint64_t(data2[0]);
-    h *= m;
-  };
-
-  h ^= h >> r;
-  h *= m;
-  h ^= h >> r;
-
-  return h;
-}
-
-uint64_t hashMem(const uint8_t* buffer, const uint64_t size)
-{
-  uint64_t hash = 0;
-  std::hash<uint64_t> hasher;
-  uint64_t blockSize = sizeof(uint64_t);
-  uint64_t blockCount = size / blockSize;
-  for (int i = 0; i < blockCount; ++i)
-  {
-    const uint64_t block = *reinterpret_cast<const uint64_t*>(buffer + i * blockSize);
-    uint64_t blockHash = hasher(block);
-    std::cout << std::hex << block << " -> " << std::hex << blockHash << std::endl;
-    hash += blockHash;
-  }
-
-  // Check is the last block is partial
-  size_t rem = size % blockSize;
-  if(rem > 0)
-  {
-    uint64_t lastBlock = 0;
-    std::memcpy(&lastBlock, buffer + blockCount * blockSize, rem);
-    uint64_t blockHash = hasher(lastBlock);
-    hash += blockHash;
-  }
-
-  return hash;
+  gHashFunction = func;
 }
 
 // Function to fill info for files in a directory recursively
-void GetFileInfoRecursive(const std::wstring& directoryPath, FileInfoMap& fileInfoMap) {
+void GetFileInfoRecursive(const std::wstring& directoryPath, FileInfoMap& fileInfoMap, const std::wstring relativePath) {
   WIN32_FIND_DATA findFileData;
   HANDLE hFind = FindFirstFile((directoryPath + L"\\*").c_str(), &findFileData);
 
@@ -206,7 +138,7 @@ void GetFileInfoRecursive(const std::wstring& directoryPath, FileInfoMap& fileIn
     if (findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
       // If it's a directory, recurse into it
       std::wstring subdirectoryPath = directoryPath + L"\\" + findFileData.cFileName;
-      GetFileInfoRecursive(subdirectoryPath, fileInfoMap);
+      GetFileInfoRecursive(subdirectoryPath, fileInfoMap, relativePath + L"\\" + findFileData.cFileName);
     }
     else {
       ULARGE_INTEGER fileSize;
@@ -214,8 +146,11 @@ void GetFileInfoRecursive(const std::wstring& directoryPath, FileInfoMap& fileIn
       fileSize.HighPart = findFileData.nFileSizeHigh;
 
       FileInfo fi;
-      fi.name.append(directoryPath);
-      fi.name.append(L"\\");
+      if(!relativePath.empty())
+      {
+        fi.name.append(relativePath);
+        fi.name.append(L"\\");
+      }
       fi.name.append(findFileData.cFileName);
       fi.size = fileSize.QuadPart;
       fileInfoMap.insert(std::make_pair(fi.size, std::move(fi))); // use movement to avoid string copy.
@@ -269,7 +204,8 @@ int readFile(const std::wstring& path, IBlockReadCallback& cb)
   }
 
   // Create an I/O Completion Port
-  UniqueHandle completionPort(CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 0), HandleDeleter());
+  DWORD threadCount = 0;
+  UniqueHandle completionPort(CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, threadCount), HandleDeleter());
   if (completionPort == nullptr)
   {
     std::cerr << "Error creating I/O Completion Port." << std::endl;
@@ -278,6 +214,7 @@ int readFile(const std::wstring& path, IBlockReadCallback& cb)
   }
 
   // Associate the file handle with the completion port
+  // NumberOfConcurrentThreads parameter is ignored if the ExistingCompletionPort parameter is not NULL.
   if (CreateIoCompletionPort(fileHandle.get(), completionPort.get(), 0, 0) == nullptr)
   {
     std::cerr << "Error associating file handle with I/O Completion Port." << std::endl;
@@ -322,9 +259,6 @@ int readFile(const std::wstring& path, IBlockReadCallback& cb)
   return result;
 }
 
-
-
-
 // Yes, the copy elision is in place, but I'd like to improve API design of the func to pass the result back not as a copy.
 std::vector<std::vector<std::string>> findIdentical(const std::string& path)
 {/*
@@ -337,6 +271,8 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
     * Take next bucket
     * Extra step : spawn separate threads for each bucket and feed IOCP from multiple buckets.
     */
+
+  assert(gHashFunction);
   std::vector<std::vector<std::string>> result;
 
   // Buffer to store the current directory
@@ -383,7 +319,7 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
   std::wcout << L"Directory: " << dir << std::endl;
 
   FileInfoMap map;
-  GetFileInfoRecursive(dir, map);
+  GetFileInfoRecursive(dir, map, L"");
 
   /*
   auto range = map.equal_range("strawberry");
@@ -405,7 +341,7 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
 
       void operator()(const uint8_t* block, size_t size) override
       {
-        mHash += MurmurHash64A(block, static_cast<int>(size), 1234);
+        mHash += gHashFunction(block, static_cast<int>(size), 1234);
       }
 
       uint64_t getHash() { return mHash; }
@@ -426,7 +362,7 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
     for (auto it = map.cbegin(i); it != map.cend(i); ++it)
     {
       const FileInfo& fi = it->second;
-      std::wcout << fi.name << L" size " << fi.size << L" hash " << fi.contentHash << std::endl;
+      //std::wcout << fi.name << L" size " << fi.size << L" hash " << fi.contentHash << std::endl;
     }
   }
 
@@ -459,12 +395,28 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
           assert(0);
         }
       }
-      
-      std::wcout << fi.name << L" size " << fi.size << L" hash " << fi.contentHash << std::endl;
     }
   }
 
+  std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+  // Fill out result
+  for (auto& it : fileHashMap)
+  {
+    SizeHashEntry& e = it.second;
+    if (e.files.size() > 0)
+    {
+      std::vector<std::string> dups;
+      for (size_t i = 0; i < e.files.size(); ++i)
+      {
+        const FileInfo* fi = e.files[i];
+        std::string narrow = converter.to_bytes(fi->name);
+        dups.emplace_back(narrow);
 
+        std::cout << ((i != 0) ? "  " : "") << narrow << " size " << fi->size << " hash " << fi->contentHash << std::endl;
+      }
+      result.emplace_back(dups);
+    }
+  }
 
   return result;
 }

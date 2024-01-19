@@ -58,4 +58,8 @@ public:
   ~IFileSys();
 };
 
+using HashFunction = uint64_t(const void* key, int len, uint64_t seed);
+void setHashFunction(HashFunction* func);
 std::vector<std::vector<std::string>> findIdentical(const std::string& path);
+
+

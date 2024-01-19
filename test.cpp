@@ -6,9 +6,14 @@
 
 #include <intrin.h>
 #include <iostream>
+#include <fstream>
+#include <filesystem>
+#include <cstdlib>
 
 #include "DupFinder.h"
 #include "AsyncMultiSet.h"
+#include "Hash.h"
+
 
 //extern std::vector<std::vector<std::string>> findIdentical(const std::string& path);
 
@@ -17,9 +22,40 @@
       if(!(cond)) { \
 					printf("TEST_ASSERT " #cond " in " "%s(%d):%s : " format "\n", \
 					__FILE__, __LINE__, __func__, ##__VA_ARGS__); \
-					__debugbreak();\
+					__debugbreak(); \
+					return false; \
 			} \
   } while(false);
+
+
+void generateFile(std::filesystem::path path, size_t size, unsigned int randomSeed)
+{
+	std::filesystem::create_directories(path.parent_path());
+	std::fstream file;
+	file.open(path, std::ios::app | std::ios::binary);
+	std::srand(randomSeed);
+	uint32_t block = 0;
+	uint32_t blockSize = sizeof(block);
+	size_t blockCount = size / blockSize;
+	for(size_t i = 0; i < blockCount; ++i)
+	{
+		block = std::rand();
+		block <<= 16;
+		block |= std::rand();
+		file.write(reinterpret_cast<char*>(&block), blockSize);
+	}
+
+	uint32_t rem = size % blockSize;
+	if (rem > 0)
+	{
+		block = std::rand();
+		block <<= 16;
+		block |= std::rand();
+		file.write(reinterpret_cast<char*>(&block), rem);
+	}
+
+	file.close();
+}
 
 /*
 
@@ -71,7 +107,7 @@ private:
 	Queue mQueue;
 };
 
-void testcase1()
+bool testcase1()
 {
 	std::vector<std::string> content =
 	{
@@ -216,9 +252,129 @@ void testcase1()
 	TEST_ASSERT(keys4[0] == 3, "");
 
 	TEST_ASSERT(!it.hasNext(), "");
+
+	return true;
+}
+
+// Differ by size
+// The same size are identical
+bool testcase2()
+{
+	const std::string testFolder = "test_gen\\";
+	// Clean up previous runs if any
+	std::filesystem::remove_all(testFolder);
+
+	// Setup test
+	size_t MB = 1024 * 1024;
+	generateFile(testFolder + "gen1.bin", 3 * MB, 0);
+	generateFile(testFolder + "gen11.bin", 3 * MB, 0);
+	generateFile(testFolder + "gen2.bin", 4 * MB, 0);
+	generateFile(testFolder + "gen3.bin", 5 * MB, 0);
+	generateFile(testFolder + "gen4.bin", 5 * MB, 0);
+
+	// Test
+	std::vector<std::vector<std::string>> fileList = findIdentical(testFolder);
+
+	TEST_ASSERT(fileList.size() == 3, "");
+	TEST_ASSERT(fileList[0].size() == 2, "");
+	TEST_ASSERT(fileList[0][0] == "gen1.bin", "");
+	TEST_ASSERT(fileList[0][1] == "gen11.bin", "");
+	TEST_ASSERT(fileList[1].size() == 1, "");
+	TEST_ASSERT(fileList[1][0] == "gen2.bin", "");
+	TEST_ASSERT(fileList[2].size() == 2, "");
+	TEST_ASSERT(fileList[2][0] == "gen3.bin", "");
+	TEST_ASSERT(fileList[2][1] == "gen4.bin", "");
+
+	return true;
+}
+
+// Differ by size
+// Content is different
+// Hashes are different
+bool testcase3()
+{
+	const std::string testFolder = "test_gen\\";
+	// Clean up previous runs if any
+	std::filesystem::remove_all(testFolder);
+
+	// Setup test
+	size_t MB = 1024 * 1024;
+	generateFile(testFolder + "gen1.bin", 3 * MB, 0);
+	generateFile(testFolder + "gen2.bin", 3 * MB, 837462);	// Same size but different content
+	generateFile(testFolder + "gen3.bin", 3 * MB, 374852);	// Same size but different content
+	generateFile(testFolder + "gen4.bin", 3 * MB, 938456);	// Same size but different content
+
+	// Test
+	//setHashFunction(simpleHash);
+	std::vector<std::vector<std::string>> fileList = findIdentical(testFolder);
+
+	TEST_ASSERT(fileList.size() == 4, "");
+	
+	TEST_ASSERT(fileList[0].size() == 1, "");
+	TEST_ASSERT(fileList[0][0] == "gen1.bin", "");
+	TEST_ASSERT(fileList[1].size() == 1, "");
+	TEST_ASSERT(fileList[1][0] == "gen2.bin", "");
+	TEST_ASSERT(fileList[2].size() == 1, "");
+	TEST_ASSERT(fileList[2][0] == "gen3.bin", "");
+	TEST_ASSERT(fileList[3].size() == 1, "");
+	TEST_ASSERT(fileList[3][0] == "gen4.bin", "");
+
+	return true;
+}
+
+// Differ by size
+// Content is different
+// Hashes are identical
+bool testcase4()
+{
+	const std::string testFolder = "test_gen\\";
+	// Clean up previous runs if any
+	std::filesystem::remove_all(testFolder);
+
+	// Setup test
+	size_t MB = 1024 * 1024;
+	generateFile(testFolder + "gen1.bin", 3 * MB, 0);
+	generateFile(testFolder + "gen2.bin", 3 * MB, 837462);	// Same size but different content
+	generateFile(testFolder + "gen3.bin", 3 * MB, 374852);	// Same size but different content
+	generateFile(testFolder + "gen4.bin", 3 * MB, 938456);	// Same size but different content
+
+	// Test
+	setHashFunction(constantHash);
+	std::vector<std::vector<std::string>> fileList = findIdentical(testFolder);
+
+	TEST_ASSERT(fileList.size() == 4, "");
+
+	TEST_ASSERT(fileList[0].size() == 1, "");
+	TEST_ASSERT(fileList[0][0] == "gen1.bin", "");
+	TEST_ASSERT(fileList[1].size() == 1, "");
+	TEST_ASSERT(fileList[1][0] == "gen2.bin", "");
+	TEST_ASSERT(fileList[2].size() == 1, "");
+	TEST_ASSERT(fileList[2][0] == "gen3.bin", "");
+	TEST_ASSERT(fileList[3].size() == 1, "");
+	TEST_ASSERT(fileList[3][0] == "gen4.bin", "");
+
+	return true;
 }
 
 void testsuite()
 {
-	testcase1();
+	using FuncPtr = bool();
+	//void (*funcPtr)();
+	//int tests = 0;
+	int testPassed = 0;
+	FuncPtr* tests[] = {
+		//testcase1,
+		testcase2,
+		testcase3,
+		testcase4
+	};
+	
+	for (auto& t : tests)
+	{
+		testPassed += t();
+	}
+	
+	int testCount = sizeof(tests) / sizeof(tests[0]);
+
+	printf("Tests Passed %d/%d\n", testPassed, testCount);
 }
