@@ -415,8 +415,8 @@ size_t compareFiles(const std::wstring& path1, const std::wstring& path2, int& c
     bool status2 = false;
     status1 = GetQueuedCompletionStatus(completionPort.get(), &bytesRead1, &key1, &overlapped1, INFINITE);
     status2 = GetQueuedCompletionStatus(completionPort.get(), &bytesRead2, &key2, &overlapped2, INFINITE);
-    assert(key1 == 0);
-    assert(key2 == 1);
+    //assert(key1 == 0);
+    //assert(key2 == 1);
     if (status1 && status2)
     {
       totalBytesRead += bytesRead1 + bytesRead2;

@@ -68,21 +68,6 @@ void generateTextFile(const std::filesystem::path& path, const std::string& text
 	file.close();
 }
 
-/*
-
-Testcases:
-* different files by size
-* different files by content with same size
-* different files by content with same size and hash
-* calc hash for files when size isn't a multiple of a hash block
-*/
-
-struct TestFile
-{
-	std::string name;
-	std::string content;
-};
-
 bool testcase_MultiSet()
 {
 	std::vector<std::string> content =
@@ -238,6 +223,8 @@ bool testcase_Default()
 
 	// Test
 	std::vector<std::vector<std::string>> fileList = findIdentical(testFolder);
+
+	// Verify
 	TEST_ASSERT(fileList.size() == 3, "");
 	TEST_ASSERT(fileList[0].size() == 2, "");
 	TEST_ASSERT(fileList[0][0] == "dir2\\file2.txt", "");
@@ -269,6 +256,7 @@ bool testcase_GenericTest1()
 	// Test
 	std::vector<std::vector<std::string>> fileList = findIdentical(testFolder);
 
+	// Verify
 	TEST_ASSERT(fileList.size() == 3, "");
 	TEST_ASSERT(fileList[0].size() == 2, "");
 	TEST_ASSERT(fileList[0][0] == "gen1.bin", "");
@@ -301,6 +289,7 @@ bool testcase_DiffHash()
 	//setHashFunction(simpleHash);
 	std::vector<std::vector<std::string>> fileList = findIdentical(TEST_FOLDER);
 
+	// Verify
 	TEST_ASSERT(fileList.size() == 4, "");
 	
 	TEST_ASSERT(fileList[0].size() == 1, "");
@@ -336,6 +325,7 @@ bool testcase_SameSizeHash()
 	setHashFunction(constantHash);	// Generate the same hash for all files
 	std::vector<std::vector<std::string>> fileList = findIdentical(TEST_FOLDER);
 
+	// Verify
 	TEST_ASSERT(fileList.size() == 4, "");
 
 	TEST_ASSERT(fileList[0].size() == 1, "");
@@ -365,8 +355,10 @@ bool testcase_SmallFiles()
 	generateBinaryFile(TEST_FOLDER + "gen4.bin", 10000, 0);
 	generateTextFile(TEST_FOLDER + "gen.txt", "hello");
 
+	// Test
 	std::vector<std::vector<std::string>> fileList = findIdentical(TEST_FOLDER);
 
+	// Verify
 	TEST_ASSERT(fileList.size() == 5, "");
 
 	return true;
@@ -392,8 +384,10 @@ bool testcase_VerySmallFiles()
 	generateBinaryFile(TEST_FOLDER + "gen3_777.bin", 3, 777);
 	generateBinaryFile(TEST_FOLDER + "gen3_888.bin", 3, 888);
 
+	// Test
 	std::vector<std::vector<std::string>> fileList = findIdentical(TEST_FOLDER);
 
+	// Verify
 	TEST_ASSERT(fileList.size() == 7, "");
 	TEST_ASSERT(fileList[0].size() == 3, "");
 	TEST_ASSERT(fileList[0][0] == "gen0.bin", "");
@@ -418,6 +412,30 @@ bool testcase_VerySmallFiles()
 	return true;
 }
 
+bool testcase_StressTest()
+{
+	// Clean up previous runs if any
+	setHashFunction(MurmurHash64A);
+	std::filesystem::remove_all(TEST_FOLDER);
+
+	// Setup test
+	const uint64_t MB = 1024 * 1024;
+	const uint64_t GB = 1024 * 1024 * 1024;
+	std::string baseFilename = "gen";
+	generateBinaryFile(TEST_FOLDER + baseFilename, 512 * MB, 0);
+	for (int i = 0; i < 3; ++i)
+	{
+		std::filesystem::copy_file(TEST_FOLDER + baseFilename, TEST_FOLDER + baseFilename + std::to_string(i));
+	}
+
+	std::vector<std::vector<std::string>> fileList = findIdentical(TEST_FOLDER);
+
+	TEST_ASSERT(fileList.size() == 1, "");
+	TEST_ASSERT(fileList[0].size() == 4, "");
+
+	return true;
+}
+
 void testsuite()
 {
 	using FuncPtr = bool();
@@ -431,7 +449,8 @@ void testsuite()
 		testcase_DiffHash,
 		testcase_SameSizeHash,
 		testcase_SmallFiles,
-		testcase_VerySmallFiles
+		testcase_VerySmallFiles,
+		testcase_StressTest
 	};
 	
 	int testCount = sizeof(tests) / sizeof(tests[0]);
