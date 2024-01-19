@@ -130,7 +130,7 @@ void setHashFunction(HashFunction* func)
 }
 
 // Function to fill info for files in a directory recursively
-void GetFileInfoRecursive(const std::wstring& directoryPath, FileInfoMap& fileInfoMap, const std::wstring relativePath) {
+void GetFileInfoRecursive(const std::wstring& directoryPath, FileInfoMap& fileInfoMap, const std::wstring& relativePath) {
   WIN32_FIND_DATA findFileData;
   HANDLE hFind = FindFirstFile((directoryPath + L"\\*").c_str(), &findFileData);
 
@@ -148,7 +148,8 @@ void GetFileInfoRecursive(const std::wstring& directoryPath, FileInfoMap& fileIn
     if (findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
       // If it's a directory, recurse into it
       std::wstring subdirectoryPath = directoryPath + L"\\" + findFileData.cFileName;
-      GetFileInfoRecursive(subdirectoryPath, fileInfoMap, relativePath + L"\\" + findFileData.cFileName);
+      std::wstring newRelPath = relativePath + (!relativePath.empty() ? L"\\" : L"") + findFileData.cFileName;
+      GetFileInfoRecursive(subdirectoryPath, fileInfoMap, newRelPath);
     }
     else {
       ULARGE_INTEGER fileSize;
@@ -189,6 +190,24 @@ public:
     std::cout.write(reinterpret_cast<const char*>(block), size);
     std::cout << std::endl;
   }
+};
+
+class FileHasher : public IBlockReadCallback
+{
+public:
+  FileHasher()
+  {
+  }
+
+  void operator()(const uint8_t* block, size_t size) override
+  {
+    mHash += gHashFunction(block, static_cast<int>(size), 1234);
+  }
+
+  uint64_t getHash() { return mHash; }
+
+private:
+  uint64_t mHash = 0;
 };
 
 struct FileOp
@@ -493,12 +512,12 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
   std::vector<std::vector<std::string>> result;
 
   // Buffer to store the current directory
-  TCHAR curDir[MAX_PATH];
+  TCHAR oldDir[MAX_PATH];
 
   // Get the current working directory
-  DWORD len = GetCurrentDirectory(MAX_PATH, curDir);
+  DWORD len = GetCurrentDirectory(MAX_PATH, oldDir);
 
-  std::wstring dir = curDir;
+  std::wstring dir = oldDir;
   if (path.size() > 2)
   {
     std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
@@ -549,30 +568,22 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
   for (auto& entry : map)
   {
     FileInfo& fi = entry.second;
-    class FileHasher : public IBlockReadCallback
+
+    if(fi.size > 0)
     {
-    public:
-      FileHasher()
-      {
-      }
+      FileHasher fileHasher;
 
-      void operator()(const uint8_t* block, size_t size) override
-      {
-        mHash += gHashFunction(block, static_cast<int>(size), 1234);
-      }
-
-      uint64_t getHash() { return mHash; }
-
-    private:
-      uint64_t mHash = 0;
-    };
-
-    FileHasher fileHasher;
-
-    size_t totalBytesRead = readFile(fi.name, fileHasher);
-    assert(totalBytesRead == fi.size);
-    fi.contentHash = fileHasher.getHash();
-    fi.hashed = true;
+      size_t totalBytesRead = readFile(fi.name, fileHasher);
+      assert(totalBytesRead == fi.size);
+      fi.contentHash = fileHasher.getHash();
+      fi.hashed = true;
+    }
+    else
+    {
+      // Special case for empty files
+      fi.contentHash = 0;
+      fi.hashed = true;
+    }
     
   }
 
@@ -581,7 +592,6 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
     for (auto it = map.cbegin(i); it != map.cend(i); ++it)
     {
       const FileInfo& fi = it->second;
-      //std::wcout << fi.name << L" size " << fi.size << L" hash " << fi.contentHash << std::endl;
     }
   }
 
@@ -617,11 +627,11 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
     }
   }
 
-  // Compare content of files with the same size/hash (if there is more than 1 file)
+  // Compare content of files with the same size/hash (if there is more than 1 file and they're not empty)
   for (auto& it : fileHashMap)
   {
     SizeHashEntry& e = it.second;
-    if (e.files.size() > 1)
+    if (e.files.size() > 1 && e.files[0]->size > 0)
     {
       findDupContent(e.files, e.multiSet);
     }
@@ -637,22 +647,37 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
     {
       if (e.files.size() > 1)
       {
-        // Dup content file indices are stored in the set
-        AsyncSetIterator itSet = e.multiSet.getIterator();
-        while (itSet.hasNext())
+        if(e.files[0]->size > 0)
         {
-          std::vector<std::string> dups;
-          std::vector<int> indices = itSet.next();
-          for(int i = 0; i < indices.size(); ++i)
+          // Dup content file indices are stored in the set
+          AsyncSetIterator itSet = e.multiSet.getIterator();
+          while (itSet.hasNext())
           {
-            int fileIdx = indices[i];
-            const FileInfo* fi = e.files[fileIdx];
+            std::vector<std::string> dups;
+            std::vector<int> indices = itSet.next();
+            for (int i = 0; i < indices.size(); ++i)
+            {
+              int fileIdx = indices[i];
+              const FileInfo* fi = e.files[fileIdx];
+              std::string narrow = converter.to_bytes(fi->name);
+              dups.emplace_back(narrow);
+
+              std::cout << ((i != 0) ? "  " : "") << narrow << " size " << fi->size << " hash " << std::hex << fi->contentHash << std::dec << std::endl;
+            }
+            std::sort(dups.begin(), dups.end());
+            result.emplace_back(dups);
+          }
+        }
+        else
+        {
+          // Empty files are all considered as dups
+          std::vector<std::string> dups;
+          for (auto& fi : e.files)
+          {
             std::string narrow = converter.to_bytes(fi->name);
             dups.emplace_back(narrow);
-
-            std::cout << ((i != 0) ? "  " : "") << narrow << " size " << fi->size << " hash " << std::hex << fi->contentHash << std::dec << std::endl;
+            std::cout << narrow << " size " << fi->size << " hash " << std::hex << fi->contentHash << std::dec << std::endl;
           }
-          std::sort(dups.begin(), dups.end());
           result.emplace_back(dups);
         }
       }
@@ -673,6 +698,9 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
       return l[0] < r[0];
     }
   );
+
+  // Set the old dir back to avoid side effects on external code.
+  SetCurrentDirectory(oldDir);
 
   return result;
 }

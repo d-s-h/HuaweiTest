@@ -232,6 +232,24 @@ bool testcase_MultiSet()
 	return true;
 }
 
+bool testcase_Default()
+{
+	const std::string testFolder = "test\\dir1";
+
+	// Test
+	std::vector<std::vector<std::string>> fileList = findIdentical(testFolder);
+	TEST_ASSERT(fileList.size() == 3, "");
+	TEST_ASSERT(fileList[0].size() == 2, "");
+	TEST_ASSERT(fileList[0][0] == "dir2\\file2.txt", "");
+	TEST_ASSERT(fileList[0][1] == "file3.txt", "");
+	TEST_ASSERT(fileList[1].size() == 1, "");
+	TEST_ASSERT(fileList[1][0] == "file1.txt", "");
+	TEST_ASSERT(fileList[2].size() == 1, "");
+	TEST_ASSERT(fileList[2][0] == "file4.txt", "");
+
+	return true;
+}
+
 // Differ by size
 // The same size are identical
 bool testcase_GenericTest1()
@@ -354,6 +372,52 @@ bool testcase_SmallFiles()
 	return true;
 }
 
+bool testcase_VerySmallFiles()
+{
+	// Clean up previous runs if any
+	setHashFunction(MurmurHash64A);
+	std::filesystem::remove_all(TEST_FOLDER);
+
+	// Setup test
+	generateBinaryFile(TEST_FOLDER + "gen0.bin", 0, 0);
+	generateBinaryFile(TEST_FOLDER + "gen00.bin", 0, 0);
+	generateBinaryFile(TEST_FOLDER + "gen000.bin", 0, 0);
+	generateBinaryFile(TEST_FOLDER + "gen1.bin", 1, 0);
+	generateBinaryFile(TEST_FOLDER + "gen11.bin", 1, 0);
+	generateBinaryFile(TEST_FOLDER + "gen111.bin", 1, 0);
+	generateBinaryFile(TEST_FOLDER + "gen1_999.bin", 1, 999);
+	generateBinaryFile(TEST_FOLDER + "gen2.bin", 2, 0);
+	generateBinaryFile(TEST_FOLDER + "gen22.bin", 2, 0);
+	generateBinaryFile(TEST_FOLDER + "gen3.bin", 3, 0);
+	generateBinaryFile(TEST_FOLDER + "gen3_777.bin", 3, 777);
+	generateBinaryFile(TEST_FOLDER + "gen3_888.bin", 3, 888);
+
+	std::vector<std::vector<std::string>> fileList = findIdentical(TEST_FOLDER);
+
+	TEST_ASSERT(fileList.size() == 7, "");
+	TEST_ASSERT(fileList[0].size() == 3, "");
+	TEST_ASSERT(fileList[0][0] == "gen0.bin", "");
+	TEST_ASSERT(fileList[0][1] == "gen00.bin", "");
+	TEST_ASSERT(fileList[0][2] == "gen000.bin", "");
+	TEST_ASSERT(fileList[1].size() == 3, "");
+	TEST_ASSERT(fileList[1][0] == "gen1.bin", "");
+	TEST_ASSERT(fileList[1][1] == "gen11.bin", "");
+	TEST_ASSERT(fileList[1][2] == "gen111.bin", "");
+	TEST_ASSERT(fileList[2].size() == 1, "");
+	TEST_ASSERT(fileList[2][0] == "gen1_999.bin", "");
+	TEST_ASSERT(fileList[3].size() == 2, "");
+	TEST_ASSERT(fileList[3][0] == "gen2.bin", "");
+	TEST_ASSERT(fileList[3][1] == "gen22.bin", "");
+	TEST_ASSERT(fileList[4].size() == 1, "");
+	TEST_ASSERT(fileList[4][0] == "gen3.bin", "");
+	TEST_ASSERT(fileList[5].size() == 1, "");
+	TEST_ASSERT(fileList[5][0] == "gen3_777.bin", "");
+	TEST_ASSERT(fileList[6].size() == 1, "");
+	TEST_ASSERT(fileList[6][0] == "gen3_888.bin", "");
+
+	return true;
+}
+
 void testsuite()
 {
 	using FuncPtr = bool();
@@ -362,10 +426,12 @@ void testsuite()
 	int testPassed = 0;
 	FuncPtr* tests[] = {
 		testcase_MultiSet,
+		testcase_Default,
 		testcase_GenericTest1,
 		testcase_DiffHash,
 		testcase_SameSizeHash,
-		testcase_SmallFiles
+		testcase_SmallFiles,
+		testcase_VerySmallFiles
 	};
 	
 	int testCount = sizeof(tests) / sizeof(tests[0]);
