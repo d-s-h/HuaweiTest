@@ -27,11 +27,11 @@ static const std::string TEST_FOLDER = "test_gen\\";
 			} \
   } while(false);
 
-class SimpleProfiler {
+class Profiler {
 public:
-	SimpleProfiler(const std::string& name) : name(name), startTime(std::chrono::high_resolution_clock::now()) {}
+	Profiler(const std::string& name) : name(name), startTime(std::chrono::high_resolution_clock::now()) {}
 
-	~SimpleProfiler()
+	~Profiler()
 	{
 		auto endTime = std::chrono::high_resolution_clock::now();
 		auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
@@ -530,7 +530,7 @@ bool testcase_Stress()
 	// Test
 	std::vector<std::vector<std::string>> fileList;
 	{
-		SimpleProfiler profileScope("testcase_Stress");
+		Profiler profileScope("testcase_Stress");
 		fileList = findIdentical(TEST_FOLDER);
 	}
 
@@ -547,8 +547,6 @@ bool testcase_Stress()
 void testsuite()
 {
 	using FuncPtr = bool();
-	//void (*funcPtr)();
-	//int tests = 0;
 	int testPassed = 0;
 	FuncPtr* tests[] = {
 		testcase_MultiSet,
@@ -566,10 +564,10 @@ void testsuite()
 	int testCount = sizeof(tests) / sizeof(tests[0]);
 	for (int i = 0; i < testCount; ++i)
 	{
-		printf("Executing test %d...\n", i);
+		printf("Executing test %d...\n", i + 1);
 		bool success = tests[i]();
 		testPassed += success;
-		printf("Test %d %s\n", i, (success) ? "succeed" : "FAILED");
+		printf("Test %d %s\n", i + 1, (success) ? "succeed" : "FAILED");
 	}
 	
 

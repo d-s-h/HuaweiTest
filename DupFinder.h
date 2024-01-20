@@ -6,23 +6,7 @@
 #include <set>
 
 #include "AsyncMultiSet.h"
-
-struct FileInfo
-{
-  uint64_t size = 0;
-  uint64_t contentHash = 0;
-  bool hashed = false;
-  std::wstring name;
-};
-
-using FileInfoMap = std::unordered_multimap<uint64_t, FileInfo>;
-
-struct DupSetEntry
-{
-  std::vector<const FileInfo*> dupList;
-};
-
-bool ContentCompare(const DupSetEntry& fiLeft, const DupSetEntry& fiRight);
+#include "Platform.h"
 
 struct SizeHashKey
 {
