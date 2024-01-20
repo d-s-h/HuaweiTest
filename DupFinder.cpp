@@ -233,28 +233,42 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
   getFileInfoRecursive(dir, map, L"");
 
   std::cout << "Calculating hashes for " << map.size() << " files..." << std::endl;
-  for (int i = 0; auto& entry : map)
+  size_t fileHashProcessed = 0;
+  for (size_t bucket = 0; bucket < map.bucket_count(); ++bucket)
   {
-    FileInfo& fi = entry.second;
-
-    if(fi.size > 0)
+    // Optimize: ignore files when no other files with the same size.
+    if(map.bucket_size(bucket) > 1)
     {
-      FileHasher fileHasher;
+      for (auto it = map.begin(bucket); it != map.end(bucket); ++it)
+      {
+        FileInfo& fi = it->second;
 
-      size_t totalBytesRead = readFile(fi.name, fileHasher);
-      assert(totalBytesRead == fi.size);
-      fi.contentHash = fileHasher.getHash();
-      fi.hashed = true;
+        if (fi.size > 0)
+        {
+          FileHasher fileHasher;
+
+          size_t totalBytesRead = readFile(fi.name, fileHasher);
+          assert(totalBytesRead == fi.size);
+          fi.contentHash = fileHasher.getHash();
+          fi.hashed = true;
+        }
+        else
+        {
+          // Special case for empty files
+          fi.contentHash = 0;
+          fi.hashed = true;
+        }
+        ++fileHashProcessed;
+        int progress = static_cast<int>(100.0f * fileHashProcessed / map.size());
+        std::cout << "\rProgress " << progress << "%";
+      }
     }
     else
     {
-      // Special case for empty files
-      fi.contentHash = 0;
-      fi.hashed = true;
+      fileHashProcessed += map.bucket_size(bucket);
+      int progress = static_cast<int>(100.0f * fileHashProcessed / map.size());
+      std::cout << "\rProgress " << progress << "%";
     }
-    int progress = static_cast<int>(100.0f * i / map.size());
-    std::cout << "\rProgress " << progress << "%";
-    ++i;
   }
 
   // Sets of same size/hash files

@@ -36,7 +36,6 @@ public:
 
 bool getCurrentDir(std::wstring& dir);
 bool setCurrentDir(const std::wstring& dir);
-size_t readFile(const std::wstring& path, IBlockReadCallback& cb);
 void getFileInfoRecursive(const std::wstring& directoryPath, FileInfoMap& fileInfoMap, const std::wstring& relativePath);
 size_t readFile(const std::wstring& path, IBlockReadCallback& cb);
 size_t compareFiles(const std::wstring& path1, const std::wstring& path2, int& compareResult);
