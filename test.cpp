@@ -491,6 +491,64 @@ bool testcase_BigFilesNoHash()
 	return true;
 }
 
+bool testcase_StressHash()
+{
+	// Clean up previous runs if any
+	setHashFunction(MurmurHash64A);
+	std::filesystem::remove_all(TEST_FOLDER);
+
+	// Setup test
+	const uint64_t MB = 1024 * 1024;
+	size_t maxSize = 20 * MB;
+	size_t minSize = 5 * MB;
+	int sizePermutations = 1;
+	int sameSizeCount = 500;
+
+	for (int i = 0; i < sizePermutations; ++i)
+	{
+		srand(i * sizePermutations);
+		size_t size = minSize + rand() % (maxSize - minSize);
+
+		std::string basename =
+			"000_" +
+			std::to_string(i) + '_' +
+			std::to_string(size);
+		generateBinaryFile(TEST_FOLDER + basename, size, 0);
+		for (int j = 1; j < sameSizeCount; ++j)
+		{
+			srand(j * sameSizeCount);
+			int prefix = rand() % 1000;
+			std::string name =
+				std::to_string(prefix) + '_' +
+				std::to_string(i) + '_' +
+				std::to_string(size) + '_' +
+				std::to_string(j);
+			std::filesystem::copy_file(TEST_FOLDER + basename, TEST_FOLDER + name);
+		}
+	}
+
+	// Test
+	std::vector<std::vector<std::string>> fileList;
+	{
+		Profiler profileScope("testcase_StressHash");
+		fileList = findIdentical(TEST_FOLDER);
+	}
+
+	// Verify
+	TEST_ASSERT(fileList.size() == sizePermutations, "");
+	for (int i = 0; i < fileList.size(); ++i)
+	{
+		TEST_ASSERT(fileList[i].size() == sameSizeCount, "");
+	}
+
+	return true;
+}
+
+bool testcase_StressContent()
+{
+	return false;
+}
+
 bool testcase_Stress()
 {
 	// Clean up previous runs if any

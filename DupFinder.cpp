@@ -83,6 +83,9 @@ Further improvements:
 #include "Platform.h"
 #include "Hash.h"
 
+const int WORKER_THREADS = 0;
+const int CONCURRENT_IO = 1;
+
 HashFunction* gHashFunction = MurmurHash64A;
 
 bool operator== (SizeHashKey const& lhs, SizeHashKey const& rhs)
@@ -180,6 +183,22 @@ void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet& se
 
 }
 
+void calcHashBlock(const uint8_t* block, const uint64_t bytesRead, void* ctx)
+{
+  assert(ctx);
+  FileInfo* fi = static_cast<FileInfo*>(ctx);
+
+  fi->contentHash += gHashFunction(block, static_cast<int>(bytesRead), 1234);
+}
+
+void calcHashFinish(void* ctx)
+{
+  assert(ctx);
+  FileInfo* fi = static_cast<FileInfo*>(ctx);
+  fi->hashed = true;
+  //std::wcout << fi->name << " size " << fi->size << " hash " << std::hex << fi->contentHash << std::dec << std::endl;
+}
+
 // Yes, the copy elision is in place, but I'd like to improve API design of the func to pass the result back not as a copy.
 std::vector<std::vector<std::string>> findIdentical(const std::string& path)
 {/*
@@ -232,6 +251,9 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
   FileInfoMap map;
   getFileInfoRecursive(dir, map, L"");
 
+  ThreadPool threadPool(WORKER_THREADS);
+  IOPool ioPool(CONCURRENT_IO);
+
   std::cout << "Calculating hashes for " << map.size() << " files..." << std::endl;
   size_t fileHashProcessed = 0;
   for (size_t bucket = 0; bucket < map.bucket_count(); ++bucket)
@@ -245,12 +267,7 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
 
         if (fi.size > 0)
         {
-          FileHasher fileHasher;
-
-          size_t totalBytesRead = readFile(fi.name, fileHasher);
-          assert(totalBytesRead == fi.size);
-          fi.contentHash = fileHasher.getHash();
-          fi.hashed = true;
+          ioPool.submitWork(fi.name, calcHashBlock, calcHashFinish, &fi);
         }
         else
         {
@@ -260,16 +277,19 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
         }
         ++fileHashProcessed;
         int progress = static_cast<int>(100.0f * fileHashProcessed / map.size());
-        std::cout << "\rProgress " << progress << "%";
+        //std::cout << "\rProgress " << progress << "%";
       }
     }
     else
     {
       fileHashProcessed += map.bucket_size(bucket);
       int progress = static_cast<int>(100.0f * fileHashProcessed / map.size());
-      std::cout << "\rProgress " << progress << "%";
+      //std::cout << "\rProgress " << progress << "%";
     }
   }
+  //std::cout << "->waitWorkers" << std::endl;
+  ioPool.waitWorkers();
+  //std::cout << "<-waitWorkers" << std::endl;
 
   // Sets of same size/hash files
   FileHashMap fileHashMap;

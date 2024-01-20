@@ -17,13 +17,28 @@ using FileInfoMap = std::unordered_multimap<uint64_t, FileInfo>;
 class ThreadPool
 {
 public:
-	ThreadPool();
+	ThreadPool(int threadCount);
 	~ThreadPool();
 
 	bool submitWork(WorkCallbackFn* cb, void* ctx);
 	void waitWorkers();
 private:
 	std::unique_ptr<class ThreadPoolImpl> mImpl;
+};
+
+using BlockCallbackFn = void(const uint8_t* buffer, const uint64_t bytesRead, void* ctx);
+using FinishCallbackFn = void(void* ctx);
+
+class IOPool
+{
+public:
+	IOPool(int concurrentIoCount);
+	~IOPool();
+
+	bool submitWork(const std::wstring& file, BlockCallbackFn* blockCb, FinishCallbackFn finishCb, void* ctx);
+	void waitWorkers();
+private:
+	std::unique_ptr<class IOPoolImpl> mImpl;
 };
 
 class IBlockReadCallback
