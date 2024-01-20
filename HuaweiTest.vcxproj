@@ -132,12 +132,14 @@
     <ClCompile Include="AsyncMultiSet.cpp" />
     <ClCompile Include="DupFinder.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="Platform.cpp" />
     <ClCompile Include="test.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AsyncMultiSet.h" />
     <ClInclude Include="DupFinder.h" />
     <ClInclude Include="Hash.h" />
+    <ClInclude Include="Platform.h" />
     <ClInclude Include="test.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

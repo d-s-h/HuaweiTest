@@ -9,6 +9,7 @@
 #include <fstream>
 #include <filesystem>
 #include <cstdlib>
+#include <chrono>
 
 #include "DupFinder.h"
 #include "AsyncMultiSet.h"
@@ -26,6 +27,22 @@ static const std::string TEST_FOLDER = "test_gen\\";
 			} \
   } while(false);
 
+class SimpleProfiler {
+public:
+	SimpleProfiler(const std::string& name) : name(name), startTime(std::chrono::high_resolution_clock::now()) {}
+
+	~SimpleProfiler()
+	{
+		auto endTime = std::chrono::high_resolution_clock::now();
+		auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+		float seconds = duration / 1000.0f;
+		printf("%s took %.3f seconds\n", name.c_str(), seconds);
+	}
+
+private:
+	std::string name;
+	std::chrono::time_point<std::chrono::high_resolution_clock> startTime;
+};
 
 void generateBinaryFile(const std::filesystem::path & path, size_t size, unsigned int randomSeed)
 {
@@ -412,7 +429,7 @@ bool testcase_VerySmallFiles()
 	return true;
 }
 
-bool testcase_StressTest()
+bool testcase_BigFiles()
 {
 	// Clean up previous runs if any
 	setHashFunction(MurmurHash64A);
@@ -428,10 +445,101 @@ bool testcase_StressTest()
 		std::filesystem::copy_file(TEST_FOLDER + baseFilename, TEST_FOLDER + baseFilename + std::to_string(i));
 	}
 
+	// Test
 	std::vector<std::vector<std::string>> fileList = findIdentical(TEST_FOLDER);
 
+	// Verify
 	TEST_ASSERT(fileList.size() == 1, "");
 	TEST_ASSERT(fileList[0].size() == 4, "");
+
+	return true;
+}
+
+bool testcase_BigFilesNoHash()
+{
+	// Clean up previous runs if any
+	setHashFunction(constantHash);
+	std::filesystem::remove_all(TEST_FOLDER);
+
+	// Setup test
+	const uint64_t MB = 1024 * 1024;
+	const uint64_t GB = 1024 * 1024 * 1024;
+	std::string baseFilename = "gen";
+	generateBinaryFile(TEST_FOLDER + baseFilename, 512 * MB, 0);
+	for (int i = 0; i < 3; ++i)
+	{
+		std::string fn = TEST_FOLDER + baseFilename + std::to_string(i);
+		std::filesystem::copy_file(TEST_FOLDER + baseFilename, fn);
+		generateBinaryFile(fn, 10, i); // Add random data to the end file
+	}
+
+	// Test
+	std::vector<std::vector<std::string>> fileList = findIdentical(TEST_FOLDER);
+
+	// Verify
+	TEST_ASSERT(fileList.size() == 4, "");
+	TEST_ASSERT(fileList[0].size() == 1, "");
+	TEST_ASSERT(fileList[0][0] == "gen", "");
+
+	TEST_ASSERT(fileList[1].size() == 1, "");
+	TEST_ASSERT(fileList[1][0] == "gen0", "");
+	TEST_ASSERT(fileList[2].size() == 1, "");
+	TEST_ASSERT(fileList[2][0] == "gen1", "");
+	TEST_ASSERT(fileList[3].size() == 1, "");
+	TEST_ASSERT(fileList[3][0] == "gen2", "");
+
+	return true;
+}
+
+bool testcase_Stress()
+{
+	// Clean up previous runs if any
+	setHashFunction(MurmurHash64A);
+	std::filesystem::remove_all(TEST_FOLDER);
+
+	// Setup test
+	const uint64_t MB = 1024 * 1024;
+	size_t maxSize = 20 * MB;
+	size_t minSize = 5 * MB;
+	int sizePermutations = 10;
+	int sameSizeCount = 100;
+
+	for (int i = 0; i < sizePermutations; ++i)
+	{
+		srand(i * sizePermutations);
+		size_t size = minSize + rand() % (maxSize - minSize);
+
+		std::string basename =
+			"000_" +
+			std::to_string(i) + '_' +
+			std::to_string(size);
+		generateBinaryFile(TEST_FOLDER + basename, size, 0);
+		for (int j = 1; j < sameSizeCount; ++j)
+		{
+			srand(j * sameSizeCount);
+			int prefix = rand() % 1000;
+			std::string name =
+				std::to_string(prefix) + '_' +
+				std::to_string(i) + '_' +
+				std::to_string(size) + '_' +
+				std::to_string(j);
+			std::filesystem::copy_file(TEST_FOLDER + basename, TEST_FOLDER + name);
+		}
+	}
+
+	// Test
+	std::vector<std::vector<std::string>> fileList;
+	{
+		SimpleProfiler profileScope("testcase_Stress");
+		fileList = findIdentical(TEST_FOLDER);
+	}
+
+	// Verify
+	TEST_ASSERT(fileList.size() == sizePermutations, "");
+	for (int i = 0; i < fileList.size(); ++i)
+	{
+		TEST_ASSERT(fileList[i].size() == sameSizeCount, "");
+	}
 
 	return true;
 }
@@ -450,7 +558,9 @@ void testsuite()
 		testcase_SameSizeHash,
 		testcase_SmallFiles,
 		testcase_VerySmallFiles,
-		testcase_StressTest
+		testcase_BigFiles,
+		testcase_BigFilesNoHash,
+		testcase_Stress
 	};
 	
 	int testCount = sizeof(tests) / sizeof(tests[0]);

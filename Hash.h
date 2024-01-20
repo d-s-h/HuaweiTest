@@ -64,7 +64,7 @@ inline uint64_t simpleHash(const void* buffer, int size, uint64_t seed)
     hash += blockHash;
   }
 
-  // Check is the last block is partial
+  // Check if the last block is partial
   size_t rem = size % blockSize;
   if (rem > 0)
   {

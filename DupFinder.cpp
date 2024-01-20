@@ -96,7 +96,7 @@ struct Stats
 Stats gStats;
 
 // Define the size of the buffer for reading from the file
-constexpr DWORD BUFFER_SIZE = 4096;
+constexpr DWORD BUFFER_SIZE = 4 * 1024 * 1024;
 
 // Custom deleter for HANDLE resources
 struct HandleDeleter
@@ -557,15 +557,8 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
   FileInfoMap map;
   GetFileInfoRecursive(dir, map, L"");
 
-  /*
-  auto range = map.equal_range("strawberry");
-  for_each(
-    range.first,
-    range.second,
-    [](stringmap::value_type& x) {std::cout << " " << x.second; }
-  );
-  */
-  for (auto& entry : map)
+  std::cout << "Calculating hashes for " << map.size() << " files..." << std::endl;
+  for (int i = 0; auto& entry : map)
   {
     FileInfo& fi = entry.second;
 
@@ -584,15 +577,9 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
       fi.contentHash = 0;
       fi.hashed = true;
     }
-    
-  }
-
-  for (size_t i = 0; i < map.bucket_count(); ++i)
-  {
-    for (auto it = map.cbegin(i); it != map.cend(i); ++it)
-    {
-      const FileInfo& fi = it->second;
-    }
+    int progress = static_cast<int>(100.0f * i / map.size());
+    std::cout << "\rProgress " << progress << "%";
+    ++i;
   }
 
   // Sets of same size/hash files
@@ -628,14 +615,33 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
   }
 
   // Compare content of files with the same size/hash (if there is more than 1 file and they're not empty)
+  size_t contentCompareGroups = 0;
   for (auto& it : fileHashMap)
   {
     SizeHashEntry& e = it.second;
     if (e.files.size() > 1 && e.files[0]->size > 0)
     {
-      findDupContent(e.files, e.multiSet);
+      ++contentCompareGroups;
     }
   }
+  
+  std::cout << "\rContent compare..." << std::endl;
+
+  size_t contentCompareProcessed = 0;
+  for (auto& it : fileHashMap)
+  {
+    SizeHashEntry& e = it.second;
+    int i = 0;
+    if (e.files.size() > 1 && e.files[0]->size > 0)
+    {
+      findDupContent(e.files, e.multiSet);
+      int progress = static_cast<int>(100.0f * contentCompareProcessed / contentCompareGroups);
+      std::cout << "\rProgress " << progress << "%";
+      ++contentCompareProcessed;
+    }
+  }
+
+  std::cout << "\rForming result..." << std::endl;
 
   std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
 
