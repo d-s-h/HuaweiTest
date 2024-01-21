@@ -616,6 +616,8 @@ void testsuite()
 		testcase_VerySmallFiles,
 		testcase_BigFiles,
 		testcase_BigFilesNoHash,
+		testcase_StressHash,
+		//testcase_StressContent,
 		testcase_Stress
 	};
 	
