@@ -131,16 +131,20 @@
   <ItemGroup>
     <ClCompile Include="AsyncMultiSet.cpp" />
     <ClCompile Include="DupFinder.cpp" />
+    <ClCompile Include="IOPool.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Platform.cpp" />
     <ClCompile Include="test.cpp" />
+    <ClCompile Include="ThreadPool.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AsyncMultiSet.h" />
     <ClInclude Include="DupFinder.h" />
     <ClInclude Include="Hash.h" />
+    <ClInclude Include="IOPool.h" />
     <ClInclude Include="Platform.h" />
     <ClInclude Include="test.h" />
+    <ClInclude Include="ThreadPool.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

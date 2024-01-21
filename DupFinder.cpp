@@ -81,6 +81,8 @@ Further improvements:
 #include <algorithm>
 
 #include "Platform.h"
+#include "ThreadPool.h"
+#include "IOPool.h"
 #include "Hash.h"
 
 const int WORKER_THREADS = 0;
@@ -109,24 +111,6 @@ public:
     std::cout.write(reinterpret_cast<const char*>(block), size);
     std::cout << std::endl;
   }
-};
-
-class FileHasher : public IBlockReadCallback
-{
-public:
-  FileHasher()
-  {
-  }
-
-  void operator()(const uint8_t* block, size_t size) override
-  {
-    mHash += gHashFunction(block, static_cast<int>(size), 1234);
-  }
-
-  uint64_t getHash() { return mHash; }
-
-private:
-  uint64_t mHash = 0;
 };
 
 constexpr int MAX_CONCURRENT_IO = 8;
