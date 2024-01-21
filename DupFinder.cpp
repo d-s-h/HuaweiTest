@@ -1,46 +1,4 @@
 /*
-# High performance file duplicates finder
-
-## Task descriptions
-
-Consider N-core machines, and given folder path find all identical (by content) files under it.
-I.e. implement a function:
-```c++
-std::vector<std::vector<std::string>> findIdentical(const string& path) {
-    ....
-}
-```
-which returns list of lists, where inner list is the list of all file names with coinciding content:
-```
-dir1
-  |- dir2
-  |  |- file2
-  |- file1
-  |- file3
-  |- file4
-```
-if content of file2 == content of file3, return list like this: `[[dir2/file2, file3], [file1], [file4]]`.
-
-## Special considerations
-
-Please ensure that code uses concurrent computations as much as possible (assume, that IO backend is capable to serve K concurrent IO requests at the same time)
-and works well for both large and small files.
-*/
-
-/*
-High-level overview of the program.
-
-* Get a list of all files and their sizes
-* Use content compare for same size files only.
-* To compare files content feed IOCP with Min(K, N) threads for optimal performance.
-* Hash files content once read so compare next files by content only if hash/size are different
-* Do I need collision handling: compare by content if hash/size are the same? Heuristics?
-
-Feed IOCP with K files.
-
-Threads to spawn:
-Min(K, N) for optimal performance.
-If N < K, consider spawning less threads but keep more requests? Not sure how to better handle this using high-level IOCP.
 
 Assumptions:
 *
@@ -87,10 +45,28 @@ Further improvements:
 #include "IOPool.h"
 #include "Hash.h"
 
-const int WORKER_THREADS = 16;
-const int CONCURRENT_IO = 8;
+const int WORKER_THREADS = 1;
+const int CONCURRENT_IO = 1;
+const int FILE_BLOCK_SIZE = 16 * 1024 * 1024; // 4 MB
 
 HashFunction* gHashFunction = MurmurHash64A;
+
+class Profiler {
+public:
+  Profiler(const std::string& name) : name(name), startTime(std::chrono::high_resolution_clock::now()) {}
+
+  ~Profiler()
+  {
+    auto endTime = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+    float seconds = duration / 1000.0f;
+    printf("%s took %.3f seconds\n", name.c_str(), seconds);
+  }
+
+private:
+  std::string name;
+  std::chrono::time_point<std::chrono::high_resolution_clock> startTime;
+};
 
 bool operator== (SizeHashKey const& lhs, SizeHashKey const& rhs)
 {
@@ -101,39 +77,6 @@ void setHashFunction(HashFunction* func)
 {
   gHashFunction = func;
 }
-
-class BlockPrinter
-{
-public:
-  ~BlockPrinter() = default;
-
-  virtual void operator()(const uint8_t* block, const size_t size)
-  {
-    std::cout << "Read " << size << " bytes: " << std::endl;
-    std::cout.write(reinterpret_cast<const char*>(block), size);
-    std::cout << std::endl;
-  }
-};
-
-constexpr int MAX_CONCURRENT_IO = 8;
-
-constexpr int FILE_BLOCK_SIZE = 4 * 1024 * 1024; // 4 MB
-
-class MemBlockAllocator
-{
-public:
-  MemBlockAllocator(uint64_t blockSize, uint64_t count)
-  {
-    mMemBlockPool.resize(blockSize * count);
-    mFreeBlockMask.resize(count, true);
-  }
-
-private:
-  uint64_t mBlockSize;
-  uint64_t mTotalBlockCount;
-  std::vector<uint8_t> mMemBlockPool;
-  std::vector<bool> mFreeBlockMask;
-};
 
 void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet& set)
 {
@@ -188,6 +131,7 @@ public:
   void calcHashes()
   {
     mProcessedFiles = 0;
+
     for(auto& fi : mFiles)
     {
       IOJob job;
@@ -203,7 +147,11 @@ public:
       job.ctx = new Context(this, fi, job.buffer, job.bufferSize, 0, bc);
       
       mIOPool->submitJob(job);
+
+      int progress = static_cast<int>(100.0f * mProcessedFiles / mFiles.size());
+      printf("\rProgress %d%%", progress);
     }
+    printf("\r");
 
     // All files were sent to hash calculation, wait for results
     while (mProcessedFiles < mFiles.size())
@@ -399,17 +347,19 @@ private:
 
 // Yes, the copy elision is in place, but I'd like to improve API design of the func to pass the result back not as a copy.
 std::vector<std::vector<std::string>> findIdentical(const std::string& path)
-{/*
-  *Gather buckets of files with the same size
-    * If a bucket contains more than 2 files, then start a content compare multithreaded procedure.
-    * Calculate hash for each file in the bucket.
-    * Group files by hash
-    * Extra step : make subgrouping by exact content compare
-    * Write out file groups and subgroups if any.
-    * Take next bucket
-    * Extra step : spawn separate threads for each bucket and feed IOCP from multiple buckets.
-    */
+{
+/*
+  - Gather buckets of files with the same size
+  - If a bucket contains more than 2 files, then start a content compare multithreaded procedure.
+  - Calculate hash for each file in the bucket.
+  - Group files by hash
+  - Extra step : make subgrouping by exact content compare
+  - Write out file groups and subgroups if any.
+  - Take next bucket
+  - Extra step : spawn separate threads for each bucket and feed IOCP from multiple buckets.
+*/
 
+  Profiler profileScope("findIdentical");
   assert(gHashFunction);
   std::vector<std::vector<std::string>> result;
 
@@ -451,46 +401,36 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
 
   ThreadPool threadPool(WORKER_THREADS);
   IOPool ioPool(CONCURRENT_IO);
-  FileHasher hasher(4 * 1024 * 1024, (WORKER_THREADS + CONCURRENT_IO) * 2, &threadPool, &ioPool);
+  FileHasher hasher(FILE_BLOCK_SIZE, (WORKER_THREADS + CONCURRENT_IO) * 2, &threadPool, &ioPool);
 
   std::cout << "Calculating hashes for " << map.size() << " files..." << std::endl;
-  size_t calcHashJobs = 0;
-  for (size_t bucket = 0; bucket < map.bucket_count(); ++bucket)
   {
-    // Optimize: ignore files when no other files with the same size.
-    if(map.bucket_size(bucket) > 1)
+    Profiler profileScope("File hashes calculation");
+    size_t calcHashJobs = 0;
+    for (size_t bucket = 0; bucket < map.bucket_count(); ++bucket)
     {
-      for (auto it = map.begin(bucket); it != map.end(bucket); ++it)
+      // Optimize: ignore files when no other files with the same size.
+      if (map.bucket_size(bucket) > 1)
       {
-        FileInfo& fi = it->second;
+        for (auto it = map.begin(bucket); it != map.end(bucket); ++it)
+        {
+          FileInfo& fi = it->second;
 
-        if (fi.size > 0)
-        {
-          //ioPool.submitJob(fi.name, calcHashBlock, calcHashFinish, &fi);
-          hasher.enqueue(&fi);
-          ++calcHashJobs;
-        }
-        else
-        {
-          // Special case for empty files
-          fi.contentHash = 0;
-          fi.hashed = true;
+          if (fi.size > 0)
+          {
+            hasher.enqueue(&fi);
+          }
+          else
+          {
+            // Special case for empty files
+            fi.contentHash = 0;
+            fi.hashed = true;
+          }
         }
       }
     }
+    hasher.calcHashes();
   }
-  hasher.calcHashes();
-
-
-  // Show progress
-  while (ioPool.jobsQueued() > 0)
-  {
-    int progress = static_cast<int>(100.0f - 100.0f * ioPool.jobsQueued() / calcHashJobs);
-    std::cout << "\rProgress " << progress << "%";
-    
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  }
-  ioPool.waitWorkers(); // If there is any oustanding work left.
 
   // Sets of same size/hash files
   FileHashMap fileHashMap;
@@ -537,18 +477,22 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
   
   std::cout << "\rContent compare..." << std::endl;
 
-  size_t contentCompareProcessed = 0;
-  for (auto& it : fileHashMap)
   {
-    SizeHashEntry& e = it.second;
-    int i = 0;
-    if (e.files.size() > 1 && e.files[0]->size > 0)
+    Profiler profileScope("Content compare");
+    size_t contentCompareProcessed = 0;
+    for (auto& it : fileHashMap)
     {
-      findDupContent(e.files, e.multiSet);
-      int progress = static_cast<int>(100.0f * contentCompareProcessed / contentCompareGroups);
-      std::cout << "\rProgress " << progress << "%";
-      ++contentCompareProcessed;
+      SizeHashEntry& e = it.second;
+      int i = 0;
+      if (e.files.size() > 1 && e.files[0]->size > 0)
+      {
+        findDupContent(e.files, e.multiSet);
+        int progress = static_cast<int>(100.0f * contentCompareProcessed / contentCompareGroups);
+        printf("\rProgress %d%%", progress);
+        ++contentCompareProcessed;
+      }
     }
+    printf("\r");
   }
 
   std::cout << "\rForming result..." << std::endl;
