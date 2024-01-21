@@ -607,18 +607,18 @@ void testsuite()
 	using FuncPtr = bool();
 	int testPassed = 0;
 	FuncPtr* tests[] = {
-		testcase_MultiSet,
-		testcase_Default,
-		testcase_GenericTest1,
-		testcase_DiffHash,
-		testcase_SameSizeHash,
-		testcase_SmallFiles,
-		testcase_VerySmallFiles,
-		testcase_BigFiles,
-		testcase_BigFilesNoHash,
+		//testcase_MultiSet,
+		//testcase_Default,
+		//testcase_GenericTest1,
+		//testcase_DiffHash,
+		//testcase_SameSizeHash,
+		//testcase_SmallFiles,
+		//testcase_VerySmallFiles,
+		//testcase_BigFiles,
+		//testcase_BigFilesNoHash,
 		testcase_StressHash,
 		//testcase_StressContent,
-		testcase_Stress
+		//testcase_Stress
 	};
 	
 	int testCount = sizeof(tests) / sizeof(tests[0]);

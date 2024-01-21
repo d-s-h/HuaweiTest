@@ -86,7 +86,7 @@ Further improvements:
 #include "Hash.h"
 
 const int WORKER_THREADS = 0;
-const int CONCURRENT_IO = 1;
+const int CONCURRENT_IO = 8;
 
 HashFunction* gHashFunction = MurmurHash64A;
 
@@ -361,7 +361,7 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
               std::string narrow = converter.to_bytes(fi->name);
               dups.emplace_back(narrow);
 
-              std::cout << ((i != 0) ? "  " : "") << narrow << " size " << fi->size << " hash " << std::hex << fi->contentHash << std::dec << std::endl;
+              LOG("%s%s size %llu hash %llx\n", ((i != 0) ? "  " : ""), narrow.c_str(), fi->size, fi->contentHash);
             }
             std::sort(dups.begin(), dups.end());
             result.emplace_back(dups);
@@ -375,7 +375,7 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
           {
             std::string narrow = converter.to_bytes(fi->name);
             dups.emplace_back(narrow);
-            std::cout << narrow << " size " << fi->size << " hash " << std::hex << fi->contentHash << std::dec << std::endl;
+            LOG("%s size %llu hash %llx\n", narrow.c_str(), fi->size, fi->contentHash);
           }
           result.emplace_back(dups);
         }
@@ -386,7 +386,7 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
         std::string narrow = converter.to_bytes(fi->name);
         std::vector<std::string> fileNames = { narrow };
         result.emplace_back(fileNames);
-        std::cout << narrow << " size " << fi->size << " hash " << std::hex << fi->contentHash << std::dec << std::endl;
+        LOG("%s size %llu hash %llx\n", narrow.c_str(), fi->size, fi->contentHash);
       }
     }
   }

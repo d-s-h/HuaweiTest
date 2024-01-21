@@ -9,6 +9,8 @@
 #include <thread>
 #include <mutex>
 
+#include "Platform.h"
+
 struct Stats
 {
   std::atomic<uint64_t> totalBytesRead = 0;
@@ -121,21 +123,25 @@ IOPoolImpl::~IOPoolImpl()
 bool IOPoolImpl::submitWork(const std::wstring& file, BlockCallbackFn* blockCb, FinishCallbackFn finishCb, void* ctx)
 {
   std::lock_guard<std::mutex> lock(mMutex);
+  WLOG(L"->IOPoolImpl::submitWork: %s, mutex acquired \n", file.c_str());
 
   mJobQueue.emplace_back(file, blockCb, finishCb, ctx);
 
   // Notify the worker thread that work is available
   mCondition.notify_one();
+  WLOG(L"<-IOPoolImpl::submitWork\n");
   return false;
 }
 
 void IOPoolImpl::waitWorkers()
 {
   std::unique_lock<std::mutex> lock(mMutex);
+  WLOG(L"->IOPoolImpl::waitWorkers\n");
   if (!mJobQueue.empty())
   {
     mAllJobsDoneCondition.wait(lock);
   }
+  WLOG(L"<-IOPoolImpl::waitWorkers\n");
 }
 
 void IOPoolImpl::stop()
@@ -160,7 +166,7 @@ void IOPoolImpl::stop()
 
 bool IOPoolImpl::kickOffJob(const IoJob& job, int ioDataIdx)
 {
-  //std::wcout << L"Kicking off " << job.filename << L" at idx " << ioDataIdx << std::endl;
+  WLOG(L"->IOPoolImpl::kickOffJob: %s at slot %d\n", job.filename.c_str(), ioDataIdx);
   FileIOData& ioData = mIoData[ioDataIdx];
 
   ioData.job = job;
@@ -211,6 +217,7 @@ bool IOPoolImpl::kickOffJob(const IoJob& job, int ioDataIdx)
     }
   }
 
+  WLOG(L"<-IOPoolImpl::kickOffJob\n");
   return true;
 }
 
@@ -223,6 +230,15 @@ int findFirstOne(unsigned int mask)
   }
   // If no 0 is found, return -1 (indicating an error or a fully set mask)
   return -1;
+}
+
+int countSetBits(unsigned int mask) {
+  int count = 0;
+  while (mask) {
+    mask &= (mask - 1);
+    count++;
+  }
+  return count;
 }
 
 void IOPoolImpl::ioDispatcherThread()
@@ -240,6 +256,8 @@ void IOPoolImpl::ioDispatcherThread()
       break;
     }
 
+    WLOG(L"->IOPoolImpl::ioDispatcherThread: there is some work, mutex acquired\n");
+
     // Process the work (in this case, print the elements in the workQueue)
     //for (const auto& job : mJobQueue)
     //{
@@ -249,6 +267,8 @@ void IOPoolImpl::ioDispatcherThread()
 
     while (!mJobQueue.empty() || mFreeIoSlotsMask != (1 << mConcurrentIoCount) - 1)
     {
+      WLOG(L"mJobQueue size: %llu available slots %d\n", mJobQueue.size(), countSetBits(mFreeIoSlotsMask));
+
       // Kick off the jobs if there are available IO slots.
       while (!mJobQueue.empty() && mFreeIoSlotsMask != 0)
       {
@@ -262,6 +282,11 @@ void IOPoolImpl::ioDispatcherThread()
         }
       }
 
+      // The job queue is released so can be outside populated with more jobs
+      lock.unlock();
+      WLOG(L"IOPoolImpl::ioDispatcherThread: all slots occupied, release the mutex\n");
+
+      // Meantime process IO jobs in slots
       DWORD bytesRead = 0;
       ULONG_PTR ioDataIdx = NULL;
       LPOVERLAPPED overlapped = NULL;
@@ -306,6 +331,7 @@ void IOPoolImpl::ioDispatcherThread()
 
         const IoJob* job = &ioData.job;
         job->finishCallback(job->ctx);
+        WLOG(L"Job finished: %s\n", job->filename.c_str());
 
         // Cleanup and release an IO slot
         ioData.fileHandle = nullptr;
@@ -317,12 +343,16 @@ void IOPoolImpl::ioDispatcherThread()
       {
         assert(0);
       }
+
+      // Acquire the job queue again to check for outstanding work.
+      lock.lock();
+      WLOG(L"IOPoolImpl::ioDispatcherThread: slot is freed, acquire the mutex\n");
     }
 
     // Clear the workQueue
     mJobQueue.clear();
     mAllJobsDoneCondition.notify_one();
-    //std::cout << "Queue is empty" << std::endl;
+    WLOG(L"<-IOPoolImpl::ioDispatcherThread: main loop\n");
   }
 
 

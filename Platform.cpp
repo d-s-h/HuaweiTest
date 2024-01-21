@@ -19,8 +19,6 @@ struct HandleDeleter
 
 using UniqueHandle = std::unique_ptr<void, HandleDeleter>;
 
-
-
 // Function to fill info for files in a directory recursively
 void getFileInfoRecursive(const std::wstring& directoryPath, FileInfoMap& fileInfoMap, const std::wstring& relativePath) {
   WIN32_FIND_DATA findFileData;

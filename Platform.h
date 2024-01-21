@@ -2,6 +2,21 @@
 #include <string>
 #include <unordered_map>
 
+#ifdef _DEBUG
+#define LOG(format, ...) \
+  do { \
+		printf(format, ##__VA_ARGS__); \
+  } while(false);
+
+#define WLOG(format, ...) \
+  do { \
+		wprintf(format, ##__VA_ARGS__); \
+  } while(false);
+#else
+#define LOG(format, ...)
+#define WLOG(format, ...)
+#endif
+
 struct FileInfo
 {
 	uint64_t size = 0;
