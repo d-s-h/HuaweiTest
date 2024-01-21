@@ -31,25 +31,20 @@ Further improvements:
 
 #include <iostream>
 #include <chrono>
-#include <thread>
 #include <locale>
 #include <codecvt>
 #include <vector>
 #include <unordered_map>
 #include <cassert>
 #include <algorithm>
-#include <mutex>
 
 #include "Platform.h"
-#include "ThreadPool.h"
-#include "IOPool.h"
 #include "Hash.h"
+#include "AsyncMultiSet.h"
 
 const int WORKER_THREADS = 1;
 const int CONCURRENT_IO = 1;
 const int FILE_BLOCK_SIZE = 16 * 1024 * 1024; // 4 MB
-
-HashFunction* gHashFunction = MurmurHash64A;
 
 class Profiler {
 public:
@@ -68,14 +63,32 @@ private:
   std::chrono::time_point<std::chrono::high_resolution_clock> startTime;
 };
 
+struct SizeHashKey
+{
+  uint64_t size = 0;
+  uint64_t hash = 0;
+};
+
+struct SizeHashKeyHash
+{
+  size_t operator()(const SizeHashKey& key) const
+  {
+    return key.hash ^ key.size;
+  }
+};
+
+struct SizeHashEntry
+{
+  SizeHashEntry() {}
+  std::vector<const FileInfo*> files;
+  AsyncMultiSet multiSet;
+};
+
+using FileHashMap = std::unordered_map<SizeHashKey, SizeHashEntry, SizeHashKeyHash>;
+
 bool operator== (SizeHashKey const& lhs, SizeHashKey const& rhs)
 {
   return (lhs.size == rhs.size) && (lhs.hash == rhs.hash);
-}
-
-void setHashFunction(HashFunction* func)
-{
-  gHashFunction = func;
 }
 
 void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet& set)
@@ -112,241 +125,20 @@ void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet& se
 
 }
 
-class FileHasher
+DupFinder::DupFinder(int concurrentIO, int workerThreads):
+  threadPool(workerThreads),
+  ioPool(concurrentIO),
+  hasher(FILE_BLOCK_SIZE, (workerThreads + concurrentIO) * 2, &threadPool, &ioPool)
 {
-public:
-  FileHasher(uint32_t blockSize, uint32_t bufferBlockCount, ThreadPool* threadPool, IOPool* ioPool):
-    mBlockSize(blockSize), mBufferBlockCount(bufferBlockCount), mThreadPool(threadPool), mIOPool(ioPool)
-  {
-    assert(bufferBlockCount >= 2); // 2 blocks is minimum
-    mFreeReadBufferBlocks.resize(bufferBlockCount, 0);
-    mReadBuffer.resize(bufferBlockCount * blockSize);
-  }
+}
 
-  void enqueue(FileInfo* fi)
-  {
-    mFiles.push_back(fi);
-  }
-
-  void calcHashes()
-  {
-    mProcessedFiles = 0;
-
-    for(auto& fi : mFiles)
-    {
-      IOJob job;
-      job.filename = fi->name;
-      job.buffer = acquireReadBlock(OWNER_STAGE_SUBMIT, mBufferBlockCount / 2); // Limit buffer allocation so workers have ones
-      job.bufferSize = mBlockSize;
-      job.blockReadCallback = sReadBlockCallback;
-      job.finishCallback = sReadFinishCallback;
-      uint32_t blocksCount = static_cast<uint32_t>(fi->size / mBlockSize + (fi->size % mBlockSize != 0));
-      BlockChain* bc = new BlockChain;
-      bc->hashBlocks.resize(blocksCount);
-      bc->blocksNotReady = blocksCount;
-      job.ctx = new Context(this, fi, job.buffer, job.bufferSize, 0, bc);
-      
-      mIOPool->submitJob(job);
-
-      int progress = static_cast<int>(100.0f * mProcessedFiles / mFiles.size());
-      printf("\rProgress %d%%", progress);
-    }
-    printf("\r");
-
-    // All files were sent to hash calculation, wait for results
-    while (mProcessedFiles < mFiles.size())
-    {
-      mIOPool->waitWorkers();
-      mThreadPool->waitWorkers();
-    }
-  }
-
-private:
-  static constexpr uint8_t OWNER_STAGE_SUBMIT = 1;
-  static constexpr uint8_t OWNER_STAGE_READ = 2;
-
-  using HashBlocks = std::vector<uint64_t>;
-  struct BlockChain
-  {
-    HashBlocks hashBlocks;
-    std::atomic<uint32_t> blocksNotReady;
-  };
-
-  struct Context
-  {
-    FileHasher* hasher = nullptr;
-    FileInfo* fileInfo = nullptr;
-    const uint8_t* block = nullptr;
-    uint32_t size = 0;
-    uint64_t readOffset = 0;
-    BlockChain* blockChain = nullptr;
-  };
-
-  static IOStatus sReadBlockCallback(const uint8_t* block, const uint64_t bytesRead, void* ctx)
-  {
-    assert(ctx);
-    Context* context = static_cast<Context*>(ctx);
-    return context->hasher->readBlockCallback(block, static_cast<uint32_t>(bytesRead), context);
-  }
-
-  IOStatus readBlockCallback(const uint8_t* block, const uint32_t bytesRead, Context* ctx)
-  {
-    LOG("->FileHasher::readBlockCallback: block 0x%p\n", block);
-    assert(ctx);
-    assert(bytesRead <= mBlockSize);
-
-    // Create a separate context for next job because of different buffer, pass the current data block
-    Context* calcBlockHashCtx = new Context(this, ctx->fileInfo, block, bytesRead, ctx->readOffset, ctx->blockChain);
-    mThreadPool->submitWork(sCalcBlockHashCallback, calcBlockHashCtx);
-
-    // Keep track of read position to be able to determine hash block.
-    ctx->readOffset += bytesRead;
-
-    // Supply IO with a new buffer to read in
-    IOStatus status;
-    status.buffer = acquireReadBlock(OWNER_STAGE_READ,  0);
-    status.bufferSize = mBlockSize;
-    ctx->block = status.buffer; // Keep the new one to be released in the end.
-    LOG("<-FileHasher::readBlockCallback\n");
-    return status;
-  }
-
-  static void sReadFinishCallback(void* ctx)
-  {
-    assert(ctx);
-    Context* context = static_cast<Context*>(ctx);
-    context->hasher->readFinishCallback(context);
-    assert(ctx);
-  }
-
-  void readFinishCallback(Context* ctx)
-  {
-    LOG("->FileHasher::readFinishCallback\n");
-    assert(ctx);
-
-    // Memory block isn't needed anymore for file reading
-    releaseReadBlock(ctx->block);
-    delete ctx;
-    LOG("<-FileHasher::readFinishCallback\n");
-  }
-
-  static void sCalcBlockHashCallback(void* ctx)
-  {
-    assert(ctx);
-    Context* context = static_cast<Context*>(ctx);
-    context->hasher->calcBlockHashCallback(context);
-  }
-
-  void calcBlockHashCallback(Context* ctx)
-  {
-    LOG("->FileHasher::calcBlockHashCallback\n");
-    assert(ctx);
-    
-    size_t blockIdx = ctx->readOffset / mBlockSize;
-    assert(blockIdx < ctx->blockChain->hashBlocks.size());
-    ctx->blockChain->hashBlocks[blockIdx] = gHashFunction(ctx->block, static_cast<int>(ctx->size), 1234);
-
-    std::atomic<uint32_t>& blocksNotReady = ctx->blockChain->blocksNotReady;
-
-    // Memory block isn't needed anymore for hash calc
-    releaseReadBlock(ctx->block);
-    ctx->block = nullptr;
-    ctx->size = 0;
-
-    // Check if it was the last block
-    if (blocksNotReady.fetch_sub(1) == 1)
-    {
-      // The last block was calculated, it's time to reduce the results.
-      mThreadPool->submitWork(sCalcFileHashCallback, ctx);
-    }
-    LOG("<-FileHasher::calcBlockHashCallback\n");
-  }
-
-  static void sCalcFileHashCallback(void* ctx)
-  {
-    assert(ctx);
-    Context* context = static_cast<Context*>(ctx);
-    context->hasher->calcFileHashCallback(context);
-  }
-
-  void calcFileHashCallback(Context* ctx)
-  {
-    LOG("->FileHasher::calcFileHashCallback\n");
-    assert(ctx);
-    assert(ctx->blockChain);
-    for (const uint64_t blockHash : ctx->blockChain->hashBlocks)
-    {
-      ctx->fileInfo->contentHash += blockHash;
-    }
-    ctx->fileInfo->hashed = true;
-    ++mProcessedFiles;
-
-    // Release all context resources
-    delete ctx->blockChain;
-    delete ctx;
-    LOG("<-FileHasher::calcFileHashCallback\n");
-  }
-
-  uint8_t* acquireReadBlock(uint8_t ownerId, int limit)
-  {
-    LOG("->FileHasher::acquireReadBlock\n");
-    assert(ownerId > 0);
-    std::unique_lock<std::mutex> lock(mMutex);
-
-    // Wait until a block is available
-    mCondition.wait(lock,
-      [this, limit]()
-      {
-        return std::count(mFreeReadBufferBlocks.begin(), mFreeReadBufferBlocks.end(), 0) > limit;
-      });
-
-    uint8_t* block = nullptr;
-    size_t idx = 0;
-    auto it = std::find(mFreeReadBufferBlocks.begin(), mFreeReadBufferBlocks.end(), 0);
-    if(it != mFreeReadBufferBlocks.end())
-    {
-      idx = it - mFreeReadBufferBlocks.begin();
-      assert(mFreeReadBufferBlocks[idx] == 0);
-      mFreeReadBufferBlocks[idx] = ownerId;
-      block = &mReadBuffer[idx * mBlockSize];
-    }
-    else
-    {
-      assert(0);
-    }
-    LOG("<-FileHasher::acquireReadBlock: idx %lld 0x%p\n", idx, block);
-    return block;
-  }
-
-  void releaseReadBlock(const uint8_t* block)
-  {
-    size_t idx = (block - mReadBuffer.data()) / mBlockSize;
-    LOG("->FileHasher::releaseReadBlock: idx %lld 0x%p\n", idx, block);
-    assert(idx >= 0 && idx < mFreeReadBufferBlocks.size());
-    std::lock_guard<std::mutex> lock(mMutex);
-    assert(mFreeReadBufferBlocks[idx] > 0);
-    mFreeReadBufferBlocks[idx] = 0;
-    mCondition.notify_one(); // notify that a block has been release so it can be acquired again.
-    LOG("<-FileHasher::releaseReadBlock\n");
-  }
-
-  std::mutex mMutex;
-  std::condition_variable mCondition;
-  std::vector<FileInfo*> mFiles;
-  ThreadPool* mThreadPool = nullptr;
-  IOPool* mIOPool = nullptr;
-  uint32_t mBufferBlockCount = 0;
-  uint32_t mBlockSize;
-  std::vector<uint8_t> mFreeReadBufferBlocks;
-  std::vector<uint8_t> mReadBuffer;
-  std::vector<bool> mFreeHashingBufferBlocks;
-  std::vector<uint8_t> mHashingBuffer;
-  std::atomic<int> mProcessedFiles;
-};
-
+void DupFinder::setHashFunction(HashFunction* func)
+{
+  hasher.setHashFunction(func);
+}
 
 // Yes, the copy elision is in place, but I'd like to improve API design of the func to pass the result back not as a copy.
-std::vector<std::vector<std::string>> findIdentical(const std::string& path)
+std::vector<std::vector<std::string>> DupFinder::findIdentical(const std::string& path)
 {
 /*
   - Gather buckets of files with the same size
@@ -360,7 +152,6 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
 */
 
   Profiler profileScope("findIdentical");
-  assert(gHashFunction);
   std::vector<std::vector<std::string>> result;
 
 
@@ -398,10 +189,6 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
 
   FileInfoMap map;
   getFileInfoRecursive(dir, map, L"");
-
-  ThreadPool threadPool(WORKER_THREADS);
-  IOPool ioPool(CONCURRENT_IO);
-  FileHasher hasher(FILE_BLOCK_SIZE, (WORKER_THREADS + CONCURRENT_IO) * 2, &threadPool, &ioPool);
 
   std::cout << "Calculating hashes for " << map.size() << " files..." << std::endl;
   {
@@ -564,3 +351,4 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
 
   return result;
 }
+

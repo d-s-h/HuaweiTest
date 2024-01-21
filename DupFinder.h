@@ -2,48 +2,21 @@
 
 #include <vector>
 #include <string>
-#include <unordered_map>
-#include <set>
 
-#include "AsyncMultiSet.h"
-#include "Platform.h"
+#include "ThreadPool.h"
+#include "IOPool.h"
+#include "FileHasher.h"
 
-struct SizeHashKey
-{
-  uint64_t size = 0;
-  uint64_t hash = 0;
-};
-
-struct SizeHashKeyHash
-{
-  size_t operator()(const SizeHashKey& key) const
-  {
-    return key.hash ^ key.size;
-  }
-};
-
-struct SizeHashEntry
-{
-  SizeHashEntry(){}
-  std::vector<const FileInfo*> files;
-  AsyncMultiSet multiSet;
-};
-
-
-using FileHashMap = std::unordered_map<SizeHashKey, SizeHashEntry, SizeHashKeyHash>;
-
-class IFileSys
+class DupFinder
 {
 public:
-  IFileSys() = default;
-  uint64_t GetFileSize(const std::string& name);
-  bool ReadFile(uint8_t* buffer, uint64_t size);
+  DupFinder(int concurrentIO, int workerThreads);
 
-  ~IFileSys();
+  void setHashFunction(HashFunction* func);
+  std::vector<std::vector<std::string>> findIdentical(const std::string& path);
+
+private:
+  ThreadPool threadPool;
+  IOPool ioPool;
+  FileHasher hasher;
 };
-
-using HashFunction = uint64_t(const void* key, int len, uint64_t seed);
-void setHashFunction(HashFunction* func);
-std::vector<std::vector<std::string>> findIdentical(const std::string& path);
-
-

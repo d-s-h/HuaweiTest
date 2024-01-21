@@ -3,6 +3,8 @@
 #include <inttypes.h>
 #include <memory.h>
 
+using HashFunction = uint64_t(const void* key, int len, uint64_t seed);
+
 //-----------------------------------------------------------------------------
 // MurmurHash2, 64-bit versions, by Austin Appleby
 // The same caveats as 32-bit MurmurHash2 apply here - beware of alignment 

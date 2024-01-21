@@ -131,6 +131,7 @@
   <ItemGroup>
     <ClCompile Include="AsyncMultiSet.cpp" />
     <ClCompile Include="DupFinder.cpp" />
+    <ClCompile Include="FileHasher.cpp" />
     <ClCompile Include="IOPool.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Platform.cpp" />
@@ -140,6 +141,7 @@
   <ItemGroup>
     <ClInclude Include="AsyncMultiSet.h" />
     <ClInclude Include="DupFinder.h" />
+    <ClInclude Include="FileHasher.h" />
     <ClInclude Include="Hash.h" />
     <ClInclude Include="IOPool.h" />
     <ClInclude Include="Platform.h" />

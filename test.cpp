@@ -27,23 +27,6 @@ static const std::string TEST_FOLDER = "test_gen\\";
 			} \
   } while(false);
 
-class Profiler {
-public:
-	Profiler(const std::string& name) : name(name), startTime(std::chrono::high_resolution_clock::now()) {}
-
-	~Profiler()
-	{
-		auto endTime = std::chrono::high_resolution_clock::now();
-		auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
-		float seconds = duration / 1000.0f;
-		printf("%s took %.3f seconds\n", name.c_str(), seconds);
-	}
-
-private:
-	std::string name;
-	std::chrono::time_point<std::chrono::high_resolution_clock> startTime;
-};
-
 void generateBinaryFile(const std::filesystem::path & path, size_t size, unsigned int randomSeed)
 {
 	std::filesystem::create_directories(path.parent_path());
@@ -239,7 +222,8 @@ bool testcase_Default()
 	const std::string testFolder = "test\\dir1";
 
 	// Test
-	std::vector<std::vector<std::string>> fileList = findIdentical(testFolder);
+	DupFinder finder(1, 1);
+	std::vector<std::vector<std::string>> fileList = finder.findIdentical(testFolder);
 
 	// Verify
 	TEST_ASSERT(fileList.size() == 3, "");
@@ -258,20 +242,20 @@ bool testcase_Default()
 // The same size are identical
 bool testcase_GenericTest1()
 {
-	const std::string testFolder = "test_gen\\";
 	// Clean up previous runs if any
-	std::filesystem::remove_all(testFolder);
+	std::filesystem::remove_all(TEST_FOLDER);
 
 	// Setup test
 	size_t MB = 1024 * 1024;
-	generateBinaryFile(testFolder + "gen1.bin", 3 * MB, 0);
-	generateBinaryFile(testFolder + "gen11.bin", 3 * MB, 0);
-	generateBinaryFile(testFolder + "gen2.bin", 4 * MB, 0);
-	generateBinaryFile(testFolder + "gen3.bin", 5 * MB, 0);
-	generateBinaryFile(testFolder + "gen4.bin", 5 * MB, 0);
+	generateBinaryFile(TEST_FOLDER + "gen1.bin", 3 * MB, 0);
+	generateBinaryFile(TEST_FOLDER + "gen11.bin", 3 * MB, 0);
+	generateBinaryFile(TEST_FOLDER + "gen2.bin", 4 * MB, 0);
+	generateBinaryFile(TEST_FOLDER + "gen3.bin", 5 * MB, 0);
+	generateBinaryFile(TEST_FOLDER + "gen4.bin", 5 * MB, 0);
 
 	// Test
-	std::vector<std::vector<std::string>> fileList = findIdentical(testFolder);
+	DupFinder finder(1, 1);
+	std::vector<std::vector<std::string>> fileList = finder.findIdentical(TEST_FOLDER);
 
 	// Verify
 	TEST_ASSERT(fileList.size() == 3, "");
@@ -303,8 +287,8 @@ bool testcase_DiffHash()
 	generateBinaryFile(TEST_FOLDER + "gen4.bin", 3 * MB, 938456);	// Same size but different content
 
 	// Test
-	//setHashFunction(simpleHash);
-	std::vector<std::vector<std::string>> fileList = findIdentical(TEST_FOLDER);
+	DupFinder finder(1, 1);
+	std::vector<std::vector<std::string>> fileList = finder.findIdentical(TEST_FOLDER);
 
 	// Verify
 	TEST_ASSERT(fileList.size() == 4, "");
@@ -339,8 +323,9 @@ bool testcase_SameSizeHash()
 	generateBinaryFile(TEST_FOLDER + "gen444.bin", 3 * MB, 938456);	// Same content
 
 	// Test
-	setHashFunction(constantHash);	// Generate the same hash for all files
-	std::vector<std::vector<std::string>> fileList = findIdentical(TEST_FOLDER);
+	DupFinder finder(1, 1);
+	finder.setHashFunction(constantHash);	// Generate the same hash for all files
+	std::vector<std::vector<std::string>> fileList = finder.findIdentical(TEST_FOLDER);
 
 	// Verify
 	TEST_ASSERT(fileList.size() == 4, "");
@@ -362,7 +347,6 @@ bool testcase_SameSizeHash()
 bool testcase_SmallFiles()
 {
 	// Clean up previous runs if any
-	setHashFunction(MurmurHash64A);
 	std::filesystem::remove_all(TEST_FOLDER);
 
 	// Setup test
@@ -373,7 +357,8 @@ bool testcase_SmallFiles()
 	generateTextFile(TEST_FOLDER + "gen.txt", "hello");
 
 	// Test
-	std::vector<std::vector<std::string>> fileList = findIdentical(TEST_FOLDER);
+	DupFinder finder(1, 1);
+	std::vector<std::vector<std::string>> fileList = finder.findIdentical(TEST_FOLDER);
 
 	// Verify
 	TEST_ASSERT(fileList.size() == 5, "");
@@ -384,7 +369,6 @@ bool testcase_SmallFiles()
 bool testcase_VerySmallFiles()
 {
 	// Clean up previous runs if any
-	setHashFunction(MurmurHash64A);
 	std::filesystem::remove_all(TEST_FOLDER);
 
 	// Setup test
@@ -402,7 +386,8 @@ bool testcase_VerySmallFiles()
 	generateBinaryFile(TEST_FOLDER + "gen3_888.bin", 3, 888);
 
 	// Test
-	std::vector<std::vector<std::string>> fileList = findIdentical(TEST_FOLDER);
+	DupFinder finder(1, 1);
+	std::vector<std::vector<std::string>> fileList = finder.findIdentical(TEST_FOLDER);
 
 	// Verify
 	TEST_ASSERT(fileList.size() == 7, "");
@@ -432,7 +417,6 @@ bool testcase_VerySmallFiles()
 bool testcase_BigFiles()
 {
 	// Clean up previous runs if any
-	setHashFunction(MurmurHash64A);
 	std::filesystem::remove_all(TEST_FOLDER);
 
 	// Setup test
@@ -446,7 +430,8 @@ bool testcase_BigFiles()
 	}
 
 	// Test
-	std::vector<std::vector<std::string>> fileList = findIdentical(TEST_FOLDER);
+	DupFinder finder(1, 1);
+	std::vector<std::vector<std::string>> fileList = finder.findIdentical(TEST_FOLDER);
 
 	// Verify
 	TEST_ASSERT(fileList.size() == 1, "");
@@ -458,7 +443,6 @@ bool testcase_BigFiles()
 bool testcase_BigFilesNoHash()
 {
 	// Clean up previous runs if any
-	setHashFunction(constantHash);
 	std::filesystem::remove_all(TEST_FOLDER);
 
 	// Setup test
@@ -474,7 +458,9 @@ bool testcase_BigFilesNoHash()
 	}
 
 	// Test
-	std::vector<std::vector<std::string>> fileList = findIdentical(TEST_FOLDER);
+	DupFinder finder(1, 1);
+	finder.setHashFunction(constantHash);
+	std::vector<std::vector<std::string>> fileList = finder.findIdentical(TEST_FOLDER);
 
 	// Verify
 	TEST_ASSERT(fileList.size() == 4, "");
@@ -494,13 +480,12 @@ bool testcase_BigFilesNoHash()
 bool testcase_StressHash()
 {
 	// Clean up previous runs if any
-	setHashFunction(MurmurHash64A);
 	std::filesystem::remove_all(TEST_FOLDER);
 
 	// Setup test
 	const uint64_t MB = 1024 * 1024;
-	size_t maxSize = 20 * MB;
-	size_t minSize = 5 * MB;
+	size_t maxSize = 100 * MB;
+	size_t minSize = 50 * MB;
 	int sizePermutations = 1;
 	int sameSizeCount = 500;
 
@@ -528,11 +513,10 @@ bool testcase_StressHash()
 	}
 
 	// Test
-	std::vector<std::vector<std::string>> fileList;
-	{
-		Profiler profileScope("testcase_StressHash");
-		fileList = findIdentical(TEST_FOLDER);
-	}
+	int workerThreads = 8;
+	int concurrentIO = 16;
+	DupFinder finder(concurrentIO, workerThreads);
+	std::vector<std::vector<std::string>> fileList = finder.findIdentical(TEST_FOLDER);
 
 	// Verify
 	TEST_ASSERT(fileList.size() == sizePermutations, "");
@@ -552,7 +536,6 @@ bool testcase_StressContent()
 bool testcase_Stress()
 {
 	// Clean up previous runs if any
-	setHashFunction(MurmurHash64A);
 	std::filesystem::remove_all(TEST_FOLDER);
 
 	// Setup test
@@ -586,11 +569,10 @@ bool testcase_Stress()
 	}
 
 	// Test
-	std::vector<std::vector<std::string>> fileList;
-	{
-		Profiler profileScope("testcase_Stress");
-		fileList = findIdentical(TEST_FOLDER);
-	}
+	int workerThreads = 8;
+	int concurrentIO = 16;
+	DupFinder finder(concurrentIO, workerThreads);
+	std::vector<std::vector<std::string>> fileList = finder.findIdentical(TEST_FOLDER);
 
 	// Verify
 	TEST_ASSERT(fileList.size() == sizePermutations, "");
@@ -607,18 +589,18 @@ void testsuite()
 	using FuncPtr = bool();
 	int testPassed = 0;
 	FuncPtr* tests[] = {
-		//testcase_MultiSet,
-		//testcase_Default,
-		//testcase_GenericTest1,
-		//testcase_DiffHash,
-		//testcase_SameSizeHash,
-		//testcase_SmallFiles,
-		//testcase_VerySmallFiles,
-		//testcase_BigFiles,
-		//testcase_BigFilesNoHash,
+		testcase_MultiSet,
+		testcase_Default,
+		testcase_GenericTest1,
+		testcase_DiffHash,
+		testcase_SameSizeHash,
+		testcase_SmallFiles,
+		testcase_VerySmallFiles,
+		testcase_BigFiles,
+		testcase_BigFilesNoHash,
 		testcase_StressHash,
 		//testcase_StressContent,
-		//testcase_Stress
+		testcase_Stress
 	};
 	
 	int testCount = sizeof(tests) / sizeof(tests[0]);
