@@ -32,16 +32,6 @@ struct HandleDeleter
 
 using UniqueHandle = std::unique_ptr<void, HandleDeleter>;
 
-
-
-struct IoJob
-{
-  std::wstring filename;
-  BlockCallbackFn* blockReadCallback = nullptr;
-  FinishCallbackFn* finishCallback = nullptr;
-  void* ctx = nullptr;
-};
-
 // Structure to hold information about an asynchronous file operation
 struct FileIOData
 {
@@ -49,8 +39,7 @@ struct FileIOData
 
   OVERLAPPED overlapped;
   UniqueHandle fileHandle;
-  CHAR buffer[BUFFER_SIZE];
-  IoJob job;
+  IOJob job;
 };
 
 class IOPoolImpl
@@ -59,18 +48,17 @@ public:
   IOPoolImpl(int concurrentIoCount);
   ~IOPoolImpl();
 
-  bool submitWork(const std::wstring& file, BlockCallbackFn* blockCb, FinishCallbackFn finishCb, void* ctx);
+  bool submitJob(IOJob& job);
   void waitWorkers();
 
   int jobsQueued();
 
 private:
-  size_t readFile(const IoJob* job);
-  bool kickOffJob(const IoJob& job, int ioDataIdx);
+  bool kickOffJob(const IOJob& job, int ioDataIdx);
   void ioDispatcherThread();
   void stop();
   UniqueHandle mCompletionPort;
-  std::vector<IoJob> mJobQueue;
+  std::vector<IOJob> mJobQueue;
 
   std::thread mWorkerThread;
   std::mutex mMutex;
@@ -91,9 +79,9 @@ IOPool::~IOPool()
 {
 }
 
-bool IOPool::submitWork(const std::wstring& file, BlockCallbackFn* blockCb, FinishCallbackFn finishCb, void* ctx)
+bool IOPool::submitJob(IOJob& job)
 {
-  return mImpl->submitWork(file, blockCb, finishCb, ctx);
+  return mImpl->submitJob(job);
 }
 
 void IOPool::waitWorkers()
@@ -128,12 +116,12 @@ IOPoolImpl::~IOPoolImpl()
   stop();
 }
 
-bool IOPoolImpl::submitWork(const std::wstring& file, BlockCallbackFn* blockCb, FinishCallbackFn finishCb, void* ctx)
+bool IOPoolImpl::submitJob(IOJob& job)
 {
   std::lock_guard<std::mutex> lock(mMutex);
-  WLOG(L"->IOPoolImpl::submitWork: %s, mutex acquired \n", file.c_str());
+  WLOG(L"->IOPoolImpl::submitWork: %s, mutex acquired \n", job.filename.c_str());
 
-  mJobQueue.emplace_back(file, blockCb, finishCb, ctx);
+  mJobQueue.push_back(job);
 
   // Notify the worker thread that work is available
   mCondition.notify_one();
@@ -179,7 +167,7 @@ void IOPoolImpl::stop()
   }
 }
 
-bool IOPoolImpl::kickOffJob(const IoJob& job, int ioDataIdx)
+bool IOPoolImpl::kickOffJob(const IOJob& job, int ioDataIdx)
 {
   WLOG(L"->IOPoolImpl::kickOffJob: %s at slot %d\n", job.filename.c_str(), ioDataIdx);
   FileIOData& ioData = mIoData[ioDataIdx];
@@ -222,7 +210,7 @@ bool IOPoolImpl::kickOffJob(const IoJob& job, int ioDataIdx)
   LPOVERLAPPED overlapped = NULL;
 
   // Perform the asynchronous read operation
-  if (!ReadFile(ioData.fileHandle.get(), ioData.buffer, BUFFER_SIZE, nullptr, &ioData.overlapped))
+  if (!ReadFile(ioData.fileHandle.get(), ioData.job.buffer, ioData.job.bufferSize, nullptr, &ioData.overlapped))
   {
     if (GetLastError() != ERROR_IO_PENDING)
     {
@@ -273,13 +261,6 @@ void IOPoolImpl::ioDispatcherThread()
 
     WLOG(L"->IOPoolImpl::ioDispatcherThread: there is some work, mutex acquired\n");
 
-    // Process the work (in this case, print the elements in the workQueue)
-    //for (const auto& job : mJobQueue)
-    //{
-    //  std::wcout << L"Processing item: " << job.filename << std::endl;
-    //  readFile(&job);
-    //}
-
     while (!mJobQueue.empty() || mFreeIoSlotsMask != (1 << mConcurrentIoCount) - 1)
     {
       WLOG(L"mJobQueue size: %llu available slots %d\n", mJobQueue.size(), countSetBits(mFreeIoSlotsMask));
@@ -309,15 +290,27 @@ void IOPoolImpl::ioDispatcherThread()
       {
         // Process the completed operation
         FileIOData& ioData = mIoData[ioDataIdx];
-        const IoJob* job = &ioData.job;
+        IOJob* job = &ioData.job;
         assert(job);
-        job->blockReadCallback(reinterpret_cast<const uint8_t*>(ioData.buffer), bytesRead, job->ctx);
-
+        IOStatus status = job->blockReadCallback(reinterpret_cast<const uint8_t*>(job->buffer), bytesRead, job->ctx);
+        if (status.action == IOStatus::Action::CONTINUE)
+        {
+          if (status.buffer)
+          {
+            LOG("IOPoolImpl::ioDispatcherThread: new buffer 0x%p\n", status.buffer);
+            job->buffer = status.buffer;
+            job->bufferSize = status.bufferSize;
+          }
+        }
+        else
+        {
+          assert(0);
+        }
         overlapped->Offset += bytesRead;
         gStats.totalBytesRead += bytesRead;
 
         // Continue the asynchronous read operation
-        if (!ReadFile(ioData.fileHandle.get(), ioData.buffer, BUFFER_SIZE, nullptr, &ioData.overlapped))
+        if (!ReadFile(ioData.fileHandle.get(), job->buffer, job->bufferSize, nullptr, &ioData.overlapped))
         {
           if (GetLastError() != ERROR_IO_PENDING)
           {
@@ -344,13 +337,13 @@ void IOPoolImpl::ioDispatcherThread()
           }
         }
 
-        const IoJob* job = &ioData.job;
+        const IOJob* job = &ioData.job;
         job->finishCallback(job->ctx);
         WLOG(L"Job finished: %s\n", job->filename.c_str());
 
         // Cleanup and release an IO slot
         ioData.fileHandle = nullptr;
-        ioData.job = IoJob();
+        ioData.job = IOJob();
         ZeroMemory(&ioData.overlapped, sizeof(OVERLAPPED));
         mFreeIoSlotsMask |= (1 << ioDataIdx);
       }

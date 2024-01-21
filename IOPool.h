@@ -3,8 +3,30 @@
 #include <memory>
 #include <string>
 
-using BlockCallbackFn = void(const uint8_t* buffer, const uint64_t bytesRead, void* ctx);
+struct IOStatus
+{
+	enum class Action
+	{
+		CONTINUE,
+		ABORT
+	};
+	Action action = Action::CONTINUE;
+	uint8_t* buffer = nullptr;
+	uint32_t bufferSize = 0;
+};
+
+using BlockCallbackFn = IOStatus(const uint8_t* buffer, const uint64_t bytesRead, void* ctx);
 using FinishCallbackFn = void(void* ctx);
+
+struct IOJob
+{
+	std::wstring filename;
+	uint8_t* buffer = nullptr;
+	uint32_t bufferSize = 0;
+	BlockCallbackFn* blockReadCallback = nullptr;
+	FinishCallbackFn* finishCallback = nullptr;
+	void* ctx = nullptr;
+};
 
 class IOPool
 {
@@ -12,7 +34,7 @@ public:
 	IOPool(int concurrentIoCount);
 	~IOPool();
 
-	bool submitWork(const std::wstring& file, BlockCallbackFn* blockCb, FinishCallbackFn finishCb, void* ctx);
+	bool submitJob(IOJob& job);
 	void waitWorkers();
 
 	int jobsQueued();

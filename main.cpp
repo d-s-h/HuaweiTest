@@ -18,7 +18,7 @@ int main()
 	//std::vector<std::vector<std::string>> res = findIdentical("test");
 	testsuite();
 	//ThreadPool threadPool;
-	//threadPool.submitWork(MyWorkCallback, reinterpret_cast<void*>(5));
+	//threadPool.submitJob(MyWorkCallback, reinterpret_cast<void*>(5));
 	//threadPool.waitWorkers();
 	return 0;
 }
