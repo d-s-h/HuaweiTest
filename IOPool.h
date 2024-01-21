@@ -14,6 +14,8 @@ public:
 
 	bool submitWork(const std::wstring& file, BlockCallbackFn* blockCb, FinishCallbackFn finishCb, void* ctx);
 	void waitWorkers();
+
+	int jobsQueued();
 private:
 	std::unique_ptr<class IOPoolImpl> mImpl;
 };

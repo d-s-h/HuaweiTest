@@ -72,7 +72,8 @@ Further improvements:
 #include "DupFinder.h"
 
 #include <iostream>
-#include <tchar.h>
+#include <chrono>
+#include <thread>
 #include <locale>
 #include <codecvt>
 #include <vector>
@@ -240,6 +241,7 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
 
   std::cout << "Calculating hashes for " << map.size() << " files..." << std::endl;
   size_t fileHashProcessed = 0;
+  size_t calcHashJobs = 0;
   for (size_t bucket = 0; bucket < map.bucket_count(); ++bucket)
   {
     // Optimize: ignore files when no other files with the same size.
@@ -252,6 +254,7 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
         if (fi.size > 0)
         {
           ioPool.submitWork(fi.name, calcHashBlock, calcHashFinish, &fi);
+          ++calcHashJobs;
         }
         else
         {
@@ -271,9 +274,16 @@ std::vector<std::vector<std::string>> findIdentical(const std::string& path)
       //std::cout << "\rProgress " << progress << "%";
     }
   }
-  //std::cout << "->waitWorkers" << std::endl;
-  ioPool.waitWorkers();
-  //std::cout << "<-waitWorkers" << std::endl;
+  
+  // Show progress
+  while (ioPool.jobsQueued() > 0)
+  {
+    int progress = static_cast<int>(100.0f - 100.0f * ioPool.jobsQueued() / calcHashJobs);
+    std::cout << "\rProgress " << progress << "%";
+    
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  ioPool.waitWorkers(); // If there is any oustanding work left.
 
   // Sets of same size/hash files
   FileHashMap fileHashMap;

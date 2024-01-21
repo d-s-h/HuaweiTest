@@ -61,6 +61,9 @@ public:
 
   bool submitWork(const std::wstring& file, BlockCallbackFn* blockCb, FinishCallbackFn finishCb, void* ctx);
   void waitWorkers();
+
+  int jobsQueued();
+
 private:
   size_t readFile(const IoJob* job);
   bool kickOffJob(const IoJob& job, int ioDataIdx);
@@ -98,6 +101,11 @@ void IOPool::waitWorkers()
   mImpl->waitWorkers();
 }
 
+int IOPool::jobsQueued()
+{
+  return mImpl->jobsQueued();
+}
+
 IOPoolImpl::IOPoolImpl(int concurrentIoCount)
 {
   mConcurrentIoCount = concurrentIoCount;
@@ -131,6 +139,13 @@ bool IOPoolImpl::submitWork(const std::wstring& file, BlockCallbackFn* blockCb, 
   mCondition.notify_one();
   WLOG(L"<-IOPoolImpl::submitWork\n");
   return false;
+}
+
+int IOPoolImpl::jobsQueued()
+{
+  // Not very accurate because doesn't count jobs already in progress
+  std::lock_guard<std::mutex> lock(mMutex);
+  return static_cast<int>(mJobQueue.size());
 }
 
 void IOPoolImpl::waitWorkers()
