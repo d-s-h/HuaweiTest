@@ -18,15 +18,19 @@ public:
   ThreadPoolImpl(int threadCount);
   ~ThreadPoolImpl();
 
+  int getThreadCount() { return mThreadCount; }
   bool submitWork(WorkCallbackFn* cb, void* ctx);
   void waitWorkers();
 private:
+
+  int mThreadCount;
   PTP_POOL pool = NULL;
   TP_CALLBACK_ENVIRON CallBackEnviron;
   PTP_CLEANUP_GROUP cleanupgroup = NULL;
 };
 
-ThreadPoolImpl::ThreadPoolImpl(int threadCount)
+ThreadPoolImpl::ThreadPoolImpl(int threadCount):
+  mThreadCount(threadCount)
 {
   BOOL bRet = FALSE;
   UINT rollback = 0;
@@ -183,6 +187,11 @@ ThreadPool::ThreadPool(int threadCount)
 
 ThreadPool::~ThreadPool()
 {
+}
+
+int ThreadPool::getThreadCount()
+{
+  return mImpl->getThreadCount();
 }
 
 bool ThreadPool::submitWork(WorkCallbackFn* cb, void* ctx)

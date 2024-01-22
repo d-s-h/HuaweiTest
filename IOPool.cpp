@@ -42,25 +42,43 @@ struct FileIOData
   IOJob job;
 };
 
+struct FindSlotByJobIdPred
+{
+  FindSlotByJobIdPred(int jobId) : jobId(jobId) {}
+  bool operator()(const FileIOData& data) const { return data.job.jobId == jobId; }
+  int jobId = 0;
+};
+
 class IOPoolImpl
 {
 public:
   IOPoolImpl(int concurrentIoCount);
   ~IOPoolImpl();
 
-  bool submitJob(IOJob& job);
+  int getConcurrentIOCount() { return mConcurrentIoCount; }
+  uint32_t submitJob(IOJob& job);
   void waitWorkers();
+  void pause(uint32_t jobId);
+  void resume(uint32_t jobId);
+  void abort(uint32_t jobId);
 
-  int jobsQueued();
+  int getJobsQueued();
 
 private:
   bool kickOffJob(const IOJob& job, int ioDataIdx);
   void ioDispatcherThread();
+  bool pendingJobsEmpty();
+  int acquireIOSlot();
+  void releaseIOSlot(const int ioDataIdx);
   void stop();
+
+  uint32_t mIdAllocator = 0;
   UniqueHandle mCompletionPort;
   std::vector<IOJob> mJobQueue;
+  std::vector<FileIOData> mPausedJobs;
+  std::vector<FileIOData> mResumedJobs;
 
-  std::thread mWorkerThread;
+  std::thread mDispatcherThread;
   std::mutex mMutex;
   std::condition_variable mCondition;
   std::condition_variable mAllJobsDoneCondition;
@@ -79,7 +97,12 @@ IOPool::~IOPool()
 {
 }
 
-bool IOPool::submitJob(IOJob& job)
+int IOPool::getConcurrentIOCount()
+{
+  return mImpl->getConcurrentIOCount();
+}
+
+uint32_t IOPool::submitJob(IOJob& job)
 {
   return mImpl->submitJob(job);
 }
@@ -89,9 +112,24 @@ void IOPool::waitWorkers()
   mImpl->waitWorkers();
 }
 
-int IOPool::jobsQueued()
+void IOPool::pause(uint32_t jobId)
 {
-  return mImpl->jobsQueued();
+  mImpl->pause(jobId);
+}
+
+void IOPool::resume(uint32_t jobId)
+{
+  mImpl->resume(jobId);
+}
+
+void IOPool::abort(uint32_t jobId)
+{
+  mImpl->abort(jobId);
+}
+
+int IOPool::getJobsQueued()
+{
+  return mImpl->getJobsQueued();
 }
 
 IOPoolImpl::IOPoolImpl(int concurrentIoCount)
@@ -108,7 +146,7 @@ IOPoolImpl::IOPoolImpl(int concurrentIoCount)
 
   mIoData.resize(concurrentIoCount);
   mFreeIoSlotsMask = (1 << concurrentIoCount) - 1;
-  mWorkerThread = std::thread(&IOPoolImpl::ioDispatcherThread, this);
+  mDispatcherThread = std::thread(&IOPoolImpl::ioDispatcherThread, this);
 }
 
 IOPoolImpl::~IOPoolImpl()
@@ -116,20 +154,22 @@ IOPoolImpl::~IOPoolImpl()
   stop();
 }
 
-bool IOPoolImpl::submitJob(IOJob& job)
+uint32_t IOPoolImpl::submitJob(IOJob& job)
 {
   std::lock_guard<std::mutex> lock(mMutex);
-  WLOG(L"->IOPoolImpl::submitWork: %s, mutex acquired \n", job.filename.c_str());
 
+  uint32_t id = ++mIdAllocator;
+  WLOG(L"->IOPoolImpl::submitJob: %d\n", id);
+  job.jobId = id;
   mJobQueue.push_back(job);
 
   // Notify the worker thread that work is available
   mCondition.notify_one();
-  WLOG(L"<-IOPoolImpl::submitWork\n");
-  return false;
+  WLOG(L"<-IOPoolImpl::submitJob\n");
+  return id;
 }
 
-int IOPoolImpl::jobsQueued()
+int IOPoolImpl::getJobsQueued()
 {
   // Not very accurate because doesn't count jobs already in progress
   std::lock_guard<std::mutex> lock(mMutex);
@@ -147,6 +187,92 @@ void IOPoolImpl::waitWorkers()
   WLOG(L"<-IOPoolImpl::waitWorkers\n");
 }
 
+void IOPoolImpl::pause(uint32_t jobId)
+{
+  assert(jobId > 0);
+  if (std::this_thread::get_id() == mDispatcherThread.get_id())
+  {
+    auto it = std::find_if(mIoData.begin(), mIoData.end(),
+      [jobId](const auto& v)
+      {
+        return v.job.jobId == jobId;
+      }
+    );
+    assert(it != mIoData.end());
+    size_t ioSlotIdx = it - mIoData.begin();
+    {
+      std::lock_guard<std::mutex> lock(mMutex);
+      FileIOData& ioData = mPausedJobs.emplace_back(std::move(mIoData[ioSlotIdx])); // move all the content
+      WLOG(L"Job is paused: %d\n", ioData.job.jobId);
+    }
+    releaseIOSlot(static_cast<int>(ioSlotIdx));
+  }
+  else
+  {
+    assert(0); // Only calls from the dispatcher thread are supported
+  }
+}
+
+void IOPoolImpl::resume(uint32_t jobId)
+{
+  assert(jobId > 0);
+  std::lock_guard<std::mutex> lock(mMutex);
+  auto it = std::find_if(mPausedJobs.begin(), mPausedJobs.end(),
+    [jobId](const auto& v)
+    {
+      return v.job.jobId == jobId;
+    }
+  );
+  if (it != mPausedJobs.end())
+  {
+    mResumedJobs.emplace_back(std::move(*it));
+    mPausedJobs.erase(it);
+    mCondition.notify_one();
+  }
+  else
+  {
+    assert(0);
+  }
+}
+
+void IOPoolImpl::abort(uint32_t jobId)
+{
+  //assert(std::this_thread::get_id() != mDispatcherThread.get_id());
+  assert(jobId > 0);
+  if (std::this_thread::get_id() == mDispatcherThread.get_id())
+  {
+    // Called from the dispatcher thread, no need to guard access to pending IO
+    auto it = std::find_if(mIoData.begin(), mIoData.end(),
+      [jobId](const auto& v)
+      {
+        return v.job.jobId == jobId;
+      }
+    );
+    assert(it != mIoData.end());
+    it->job.finishCallback(it->job.ctx);
+    WLOG(L"Job aborted: %d\n", it->job.jobId);
+    size_t ioSlotIdx = it - mIoData.begin();
+    releaseIOSlot(static_cast<int>(ioSlotIdx));
+    mIoData.erase(it);
+  }
+  else
+  {
+    // Called outside of dispatcher thread, only paused jobs abort is supported for now
+    std::lock_guard<std::mutex> lock(mMutex);
+    auto it = std::find_if(mPausedJobs.begin(), mPausedJobs.end(),
+      [jobId](const auto& v)
+      {
+        return v.job.jobId == jobId;
+      }
+    );
+    assert(it != mPausedJobs.end());
+    it->job.finishCallback(it->job.ctx);
+    WLOG(L"Job aborted: %d\n", it->job.jobId);
+    assert(it != mPausedJobs.end());
+    mPausedJobs.erase(it);
+  }
+}
+
 void IOPoolImpl::stop()
 {
   mCompletionPort.reset(); // Close the port, it will force to isDispatcher thread to exit.
@@ -161,15 +287,15 @@ void IOPoolImpl::stop()
   mCondition.notify_one();
 
   // Wait for the worker thread to join
-  if (mWorkerThread.joinable())
+  if (mDispatcherThread.joinable())
   {
-    mWorkerThread.join();
+    mDispatcherThread.join();
   }
 }
 
 bool IOPoolImpl::kickOffJob(const IOJob& job, int ioDataIdx)
 {
-  WLOG(L"->IOPoolImpl::kickOffJob: %s at slot %d\n", job.filename.c_str(), ioDataIdx);
+  WLOG(L"->IOPoolImpl::kickOffJob: %d at slot %d\n", job.jobId, ioDataIdx);
   FileIOData& ioData = mIoData[ioDataIdx];
 
   ioData.job = job;
@@ -194,7 +320,7 @@ bool IOPoolImpl::kickOffJob(const IOJob& job, int ioDataIdx)
 
   // Associate the file handle with the completion port
   // NumberOfConcurrentThreads parameter is ignored if the ExistingCompletionPort parameter is not NULL.
-  if (CreateIoCompletionPort(ioData.fileHandle.get(), mCompletionPort.get(), ioDataIdx, 0) == nullptr)
+  if (CreateIoCompletionPort(ioData.fileHandle.get(), mCompletionPort.get(), job.jobId, 0) == nullptr)
   {
     std::cerr << "Error associating file handle with I/O Completion Port." << std::endl;
     assert(0);
@@ -209,6 +335,7 @@ bool IOPoolImpl::kickOffJob(const IOJob& job, int ioDataIdx)
   ULONG_PTR key = NULL;
   LPOVERLAPPED overlapped = NULL;
 
+  LOG("IOPoolImpl::kickOffJob: ReadFile h=%p for jobId %d\n", ioData.fileHandle.get(), ioData.job.jobId);
   // Perform the asynchronous read operation
   if (!ReadFile(ioData.fileHandle.get(), ioData.job.buffer, ioData.job.bufferSize, nullptr, &ioData.overlapped))
   {
@@ -251,7 +378,7 @@ void IOPoolImpl::ioDispatcherThread()
     std::unique_lock<std::mutex> lock(mMutex);
 
     // Wait until stop is requested or some work needs to be done
-    mCondition.wait(lock, [this] { return mStopRequested || !mJobQueue.empty(); });
+    mCondition.wait(lock, [this] { return mStopRequested || !mJobQueue.empty() || !mResumedJobs.empty(); });
 
     // Check if stop is requested
     if (mStopRequested)
@@ -261,18 +388,43 @@ void IOPoolImpl::ioDispatcherThread()
 
     WLOG(L"->IOPoolImpl::ioDispatcherThread: there is some work, mutex acquired\n");
 
-    while (!mJobQueue.empty() || mFreeIoSlotsMask != (1 << mConcurrentIoCount) - 1)
+    while (!mJobQueue.empty() || !mResumedJobs.empty() || !pendingJobsEmpty())
     {
-      WLOG(L"mJobQueue size: %llu available slots %d\n", mJobQueue.size(), countSetBits(mFreeIoSlotsMask));
+      WLOG(L"mJobQueue(%llu), mResumedJobs(%llu), available slots %d\n", mJobQueue.size(), mResumedJobs.size(), countSetBits(mFreeIoSlotsMask));
 
-      // Kick off the jobs if there are available IO slots.
+      // Continue any resumed jobs if there are available IO slots.
+      while (!mResumedJobs.empty() && mFreeIoSlotsMask != 0)
+      {
+        int idx = acquireIOSlot();
+        assert(idx != -1);
+        if (idx != -1)
+        {
+          mIoData[idx] = std::move(mResumedJobs.front());
+          FileIOData& ioData = mIoData[idx];
+          mResumedJobs.erase(mResumedJobs.begin());
+          WLOG(L"->IOPoolImpl::ioDispatcherThread: %d resumed at slot %d\n", ioData.job.jobId, idx);
+          // Continue the asynchronous read operation
+          if (!ReadFile(ioData.fileHandle.get(), ioData.job.buffer, ioData.job.bufferSize, nullptr, &ioData.overlapped))
+          {
+            if (GetLastError() != ERROR_IO_PENDING)
+            {
+              std::cerr << "Error initiating asynchronous read." << std::endl;
+              assert(0);
+              return;
+            }
+          }
+          WLOG(L"Job is resumed: %d\n", mIoData[idx].job.jobId);
+        }
+      }
+
+      // Kick off jobs if there are available IO slots.
       while (!mJobQueue.empty() && mFreeIoSlotsMask != 0)
       {
-        int freeIdx = findFirstOne(mFreeIoSlotsMask);
-        if (freeIdx != -1)
+        int idx = acquireIOSlot();
+        assert(idx != -1);
+        if (idx != -1)
         {
-          mFreeIoSlotsMask ^= (1 << freeIdx); // acquire
-          bool success = kickOffJob(mJobQueue.front(), freeIdx);
+          bool success = kickOffJob(mJobQueue.front(), idx);
           assert(success);
           mJobQueue.erase(mJobQueue.begin());
         }
@@ -284,39 +436,66 @@ void IOPoolImpl::ioDispatcherThread()
 
       // Meantime process IO jobs in slots
       DWORD bytesRead = 0;
-      ULONG_PTR ioDataIdx = NULL;
+      ULONG_PTR ioSlotIdx = NULL;
       LPOVERLAPPED overlapped = NULL;
-      while (GetQueuedCompletionStatus(mCompletionPort.get(), &bytesRead, &ioDataIdx, &overlapped, INFINITE))
+      IOStatus status;
+      while (GetQueuedCompletionStatus(mCompletionPort.get(), &bytesRead, &ioSlotIdx, &overlapped, INFINITE))
       {
         // Process the completed operation
-        FileIOData& ioData = mIoData[ioDataIdx];
+        FileIOData& ioData = mIoData[ioSlotIdx];
         IOJob* job = &ioData.job;
         assert(job);
-        IOStatus status = job->blockReadCallback(reinterpret_cast<const uint8_t*>(job->buffer), bytesRead, job->ctx);
-        if (status.action == IOStatus::Action::CONTINUE)
+        int jobId = job->jobId;
+        overlapped->Offset += bytesRead;
+        gStats.totalBytesRead += bytesRead;
+        status = job->blockReadCallback(reinterpret_cast<const uint8_t*>(job->buffer), bytesRead, job->ctx);
+
+        // Check the job wasn't aborted or paused
+        auto itSlotAfterCb = std::find_if(mIoData.begin(), mIoData.end(), FindSlotByJobIdPred(jobId));
+        if (itSlotAfterCb == mIoData.end())
         {
+          // Check if a new buffer is provided
           if (status.buffer)
           {
-            LOG("IOPoolImpl::ioDispatcherThread: new buffer 0x%p\n", status.buffer);
-            job->buffer = status.buffer;
-            job->bufferSize = status.bufferSize;
+            // Store the new buffer in the paused job
+            lock.lock();
+            auto it = std::find_if(mPausedJobs.begin(), mPausedJobs.end(), FindSlotByJobIdPred(jobId));
+            if(it != mPausedJobs.end())
+            {
+              //LOG("IOPoolImpl::ioDispatcherThread: new buffer 0x%p\n", status.buffer);
+              it->job.buffer = status.buffer;
+              it->job.bufferSize = status.bufferSize;
+            }
+            lock.unlock();
+          }
+
+          overlapped = NULL;
+          if (pendingJobsEmpty())
+          {
+            // It was the last job in the pending list so exit the GetQueuedCompletionStatus loop.
+            break;
           }
         }
         else
         {
-          assert(0);
-        }
-        overlapped->Offset += bytesRead;
-        gStats.totalBytesRead += bytesRead;
-
-        // Continue the asynchronous read operation
-        if (!ReadFile(ioData.fileHandle.get(), job->buffer, job->bufferSize, nullptr, &ioData.overlapped))
-        {
-          if (GetLastError() != ERROR_IO_PENDING)
+          // Check if a new buffer is provided
+          if (status.buffer)
           {
-            std::cerr << "Error initiating asynchronous read." << std::endl;
-            assert(0);
-            return;
+            //LOG("IOPoolImpl::ioDispatcherThread: new buffer 0x%p\n", status.buffer);
+            job->buffer = status.buffer;
+            job->bufferSize = status.bufferSize;
+          }
+
+          LOG("IOPoolImpl::ioDispatcherThread: ReadFile h=%p\n", ioData.fileHandle.get());
+          // Continue the asynchronous read operation
+          if (!ReadFile(ioData.fileHandle.get(), job->buffer, job->bufferSize, nullptr, &ioData.overlapped))
+          {
+            if (GetLastError() != ERROR_IO_PENDING)
+            {
+              std::cerr << "Error initiating asynchronous read." << std::endl;
+              assert(0);
+              return;
+            }
           }
         }
       }
@@ -324,7 +503,7 @@ void IOPoolImpl::ioDispatcherThread()
       if (overlapped != NULL)
       {
         bool success = false;
-        FileIOData& ioData = mIoData[ioDataIdx];
+        FileIOData& ioData = mIoData[ioSlotIdx];
         // Check the result of the asynchronous read without waiting (forth parameter FALSE). 
         success = GetOverlappedResult(ioData.fileHandle.get(), overlapped, &bytesRead, FALSE);
 
@@ -335,21 +514,22 @@ void IOPoolImpl::ioDispatcherThread()
             std::cerr << "Error completing asynchronous read." << std::endl;
             assert(0);
           }
+          LOG("IOPoolImpl::ioDispatcherThread: GetOverlappedResult h=%p\n", ioData.fileHandle.get());
         }
 
         const IOJob* job = &ioData.job;
         job->finishCallback(job->ctx);
-        WLOG(L"Job finished: %s\n", job->filename.c_str());
+        WLOG(L"Job finished: %d\n", job->jobId);
 
-        // Cleanup and release an IO slot
-        ioData.fileHandle = nullptr;
-        ioData.job = IOJob();
-        ZeroMemory(&ioData.overlapped, sizeof(OVERLAPPED));
-        mFreeIoSlotsMask |= (1 << ioDataIdx);
+        releaseIOSlot(static_cast<int>(ioSlotIdx));
+      }
+      else if (status.action == IOStatus::Action::PAUSE)
+      {
+        // The job was paused, that's ok
       }
       else
       {
-        assert(0);
+        //assert(0);
       }
 
       // Acquire the job queue again to check for outstanding work.
@@ -364,4 +544,31 @@ void IOPoolImpl::ioDispatcherThread()
   }
 
 
+}
+
+bool IOPoolImpl::pendingJobsEmpty()
+{
+  return mFreeIoSlotsMask == (1 << mConcurrentIoCount) - 1;
+}
+
+int IOPoolImpl::acquireIOSlot()
+{
+  int idx = findFirstOne(mFreeIoSlotsMask);
+  if (idx != -1)
+  {
+    mFreeIoSlotsMask ^= (1 << idx); // acquire
+  }
+  return idx;
+}
+
+void IOPoolImpl::releaseIOSlot(const int ioDataIdx)
+{
+  // Allowed to call from the dispatcher thread only.
+  assert(std::this_thread::get_id() == mDispatcherThread.get_id());
+  // Cleanup and release an IO slot
+  FileIOData& ioData = mIoData[ioDataIdx];
+  ioData.fileHandle = nullptr;
+  ioData.job = IOJob();
+  ZeroMemory(&ioData.overlapped, sizeof(OVERLAPPED));
+  mFreeIoSlotsMask |= (1 << ioDataIdx);
 }

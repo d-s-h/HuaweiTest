@@ -21,12 +21,15 @@ using FinishCallbackFn = void(void* ctx);
 
 struct IOJob
 {
+	uint32_t jobId = 0; // assigned when submitted
 	std::wstring filename;
 	uint8_t* buffer = nullptr;
 	uint32_t bufferSize = 0;
 	BlockCallbackFn* blockReadCallback = nullptr;
 	FinishCallbackFn* finishCallback = nullptr;
 	void* ctx = nullptr;
+
+
 };
 
 class IOPool
@@ -35,18 +38,16 @@ public:
 	IOPool(int concurrentIoCount);
 	~IOPool();
 
-	bool submitJob(IOJob& job);
+	int getConcurrentIOCount();
+	uint32_t submitJob(IOJob& job);
 	void waitWorkers();
+	void pause(uint32_t jobId);
+	void resume(uint32_t jobId);
+	void abort(uint32_t jobId);
 
-	int jobsQueued();
+	int getJobsQueued();
+	
+
 private:
 	std::unique_ptr<class IOPoolImpl> mImpl;
-};
-
-class IBlockReadCallback
-{
-public:
-	~IBlockReadCallback() = default;
-
-	virtual void operator()(const uint8_t* block, const size_t size) = 0;
 };

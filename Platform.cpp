@@ -61,6 +61,11 @@ void getFileInfoRecursive(const std::wstring& directoryPath, FileInfoMap& fileIn
   FindClose(hFind);
 }
 
+uint32_t getCurrentThreadId()
+{
+  return GetCurrentThreadId();
+}
+
 bool getCurrentDir(std::wstring& dir)
 {
   // Buffer to store the current directory

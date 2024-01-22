@@ -135,6 +135,7 @@
     <ClCompile Include="FileHasher.cpp" />
     <ClCompile Include="IOPool.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="MemBlockPool.cpp" />
     <ClCompile Include="Platform.cpp" />
     <ClCompile Include="test.cpp" />
     <ClCompile Include="ThreadPool.cpp" />
@@ -146,6 +147,7 @@
     <ClInclude Include="FileHasher.h" />
     <ClInclude Include="Hash.h" />
     <ClInclude Include="IOPool.h" />
+    <ClInclude Include="MemBlockPool.h" />
     <ClInclude Include="Platform.h" />
     <ClInclude Include="test.h" />
     <ClInclude Include="ThreadPool.h" />

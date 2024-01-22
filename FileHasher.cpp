@@ -63,7 +63,7 @@ IOStatus FileHasher::sReadBlockCallback(const uint8_t* block, const uint64_t byt
 
 IOStatus FileHasher::readBlockCallback(const uint8_t* block, const uint32_t bytesRead, Context* ctx)
 {
-  LOG("->FileHasher::readBlockCallback: block 0x%p\n", block);
+  //LOG("->FileHasher::readBlockCallback: block 0x%p\n", block);
   assert(ctx);
   assert(bytesRead <= mBlockSize);
 
@@ -79,7 +79,7 @@ IOStatus FileHasher::readBlockCallback(const uint8_t* block, const uint32_t byte
   status.buffer = acquireMemBlock(OWNER_STAGE_READ, 0);
   status.bufferSize = mBlockSize;
   ctx->block = status.buffer; // Keep the new one to be released in the end.
-  LOG("<-FileHasher::readBlockCallback\n");
+  //LOG("<-FileHasher::readBlockCallback\n");
   return status;
 }
 
@@ -88,18 +88,17 @@ void FileHasher::sReadFinishCallback(void* ctx)
   assert(ctx);
   Context* context = static_cast<Context*>(ctx);
   context->hasher->readFinishCallback(context);
-  assert(ctx);
 }
 
 void FileHasher::readFinishCallback(Context* ctx)
 {
-  LOG("->FileHasher::readFinishCallback\n");
+  //LOG("->FileHasher::readFinishCallback\n");
   assert(ctx);
 
   // Memory block isn't needed anymore for file reading
   releaseMemBlock(ctx->block);
   delete ctx;
-  LOG("<-FileHasher::readFinishCallback\n");
+  //LOG("<-FileHasher::readFinishCallback\n");
 }
 
 void FileHasher::sCalcBlockHashCallback(void* ctx)
@@ -111,7 +110,7 @@ void FileHasher::sCalcBlockHashCallback(void* ctx)
 
 void FileHasher::calcBlockHashCallback(Context* ctx)
 {
-  LOG("->FileHasher::calcBlockHashCallback\n");
+  //LOG("->FileHasher::calcBlockHashCallback\n");
   assert(ctx);
 
   size_t blockIdx = ctx->readOffset / mBlockSize;
@@ -131,7 +130,7 @@ void FileHasher::calcBlockHashCallback(Context* ctx)
     // The last block was calculated, it's time to reduce the results.
     mThreadPool->submitWork(sCalcFileHashCallback, ctx);
   }
-  LOG("<-FileHasher::calcBlockHashCallback\n");
+  //LOG("<-FileHasher::calcBlockHashCallback\n");
 }
 
 void FileHasher::sCalcFileHashCallback(void* ctx)
@@ -143,7 +142,7 @@ void FileHasher::sCalcFileHashCallback(void* ctx)
 
 void FileHasher::calcFileHashCallback(Context* ctx)
 {
-  LOG("->FileHasher::calcFileHashCallback\n");
+  //LOG("->FileHasher::calcFileHashCallback\n");
   assert(ctx);
   assert(ctx->blockChain);
   for (const uint64_t blockHash : ctx->blockChain->hashBlocks)
@@ -156,12 +155,12 @@ void FileHasher::calcFileHashCallback(Context* ctx)
   // Release all context resources
   delete ctx->blockChain;
   delete ctx;
-  LOG("<-FileHasher::calcFileHashCallback\n");
+  //LOG("<-FileHasher::calcFileHashCallback\n");
 }
 
 uint8_t* FileHasher::acquireMemBlock(uint8_t ownerId, int limit)
 {
-  LOG("->FileHasher::acquireReadBlock\n");
+  //LOG("->FileHasher::acquireReadBlock\n");
   assert(ownerId > 0);
   std::unique_lock<std::mutex> lock(mMutex);
 
@@ -186,18 +185,18 @@ uint8_t* FileHasher::acquireMemBlock(uint8_t ownerId, int limit)
   {
     assert(0);
   }
-  LOG("<-FileHasher::acquireReadBlock: idx %lld 0x%p\n", idx, block);
+ // LOG("<-FileHasher::acquireReadBlock: idx %lld 0x%p\n", idx, block);
   return block;
 }
 
 void FileHasher::releaseMemBlock(const uint8_t* block)
 {
   size_t idx = (block - mBuffer.data()) / mBlockSize;
-  LOG("->FileHasher::releaseReadBlock: idx %lld 0x%p\n", idx, block);
+  //LOG("->FileHasher::releaseReadBlock: idx %lld 0x%p\n", idx, block);
   assert(idx >= 0 && idx < mFreeBufferBlocks.size());
   std::lock_guard<std::mutex> lock(mMutex);
   assert(mFreeBufferBlocks[idx] > 0);
   mFreeBufferBlocks[idx] = 0;
   mCondition.notify_one(); // notify that a block has been release so it can be acquired again.
-  LOG("<-FileHasher::releaseReadBlock\n");
+  //LOG("<-FileHasher::releaseReadBlock\n");
 }

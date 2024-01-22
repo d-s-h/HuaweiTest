@@ -44,8 +44,8 @@ Further improvements:
 #include "AsyncFileComparer.h"
 
 const int WORKER_THREADS = 1;
-const int CONCURRENT_IO = 1;
-const int FILE_BLOCK_SIZE = 16 * 1024 * 1024; // 4 MB
+const int CONCURRENT_IO = 2;
+const int FILE_BLOCK_SIZE = 2 * 1024 * 1024; // 16 MB
 
 class Profiler {
 public:
@@ -94,10 +94,10 @@ bool operator== (SizeHashKey const& lhs, SizeHashKey const& rhs)
 
 
 
-void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet& set)
+void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet& set, ThreadPool& threadPool, IOPool& ioPool)
 {
   DataComparer comparer;
-  AsyncFileComparer fileComparer(0, 0, nullptr, nullptr);
+  AsyncFileComparer fileComparer(FILE_BLOCK_SIZE, &threadPool, &ioPool);
 
   std::vector<int> insertIdxList(files.size());
 
@@ -147,7 +147,7 @@ void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet& se
     }
     results.clear();
 
-  } while (comparer.getQueue().size() > 0);
+  } while (comparer.getQueue().size() > 0 || insertIdxList.size() > 0);
 
 }
 
@@ -299,7 +299,7 @@ std::vector<std::vector<std::string>> DupFinder::findIdentical(const std::string
       int i = 0;
       if (e.files.size() > 1 && e.files[0]->size > 0)
       {
-        findDupContent(e.files, e.multiSet);
+        findDupContent(e.files, e.multiSet, mThreadPool, mIoPool);
         int progress = static_cast<int>(100.0f * contentCompareProcessed / contentCompareGroups);
         printf("\rProgress %d%%", progress);
         ++contentCompareProcessed;
