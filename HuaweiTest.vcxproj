@@ -129,6 +129,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="AsyncFileComparer.cpp" />
     <ClCompile Include="AsyncMultiSet.cpp" />
     <ClCompile Include="DupFinder.cpp" />
     <ClCompile Include="FileHasher.cpp" />
@@ -139,6 +140,7 @@
     <ClCompile Include="ThreadPool.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AsyncFileComparer.h" />
     <ClInclude Include="AsyncMultiSet.h" />
     <ClInclude Include="DupFinder.h" />
     <ClInclude Include="FileHasher.h" />

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <thread>
 #include <mutex>
 
 #include "Platform.h"
@@ -48,16 +47,16 @@ private:
   void calcBlockHashCallback(Context* ctx);
   void calcFileHashCallback(Context* ctx);
 
-  uint8_t* acquireReadBlock(uint8_t ownerId, int limit);
-  void releaseReadBlock(const uint8_t* block);
+  uint8_t* acquireMemBlock(uint8_t ownerId, int limit);
+  void releaseMemBlock(const uint8_t* block);
 
+  uint32_t mBlockSize = 0;
+  uint32_t mBufferBlockCount = 0;
+  ThreadPool* mThreadPool = nullptr;
+  IOPool* mIOPool = nullptr;
   std::mutex mMutex;
   std::condition_variable mCondition;
   std::vector<FileInfo*> mFiles;
-  ThreadPool* mThreadPool = nullptr;
-  IOPool* mIOPool = nullptr;
-  uint32_t mBufferBlockCount = 0;
-  uint32_t mBlockSize = 0;
   std::vector<uint8_t> mFreeBufferBlocks;
   std::vector<uint8_t> mBuffer;
   std::atomic<int> mProcessedFiles;

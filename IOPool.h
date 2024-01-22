@@ -8,6 +8,7 @@ struct IOStatus
 	enum class Action
 	{
 		CONTINUE,
+		PAUSE,
 		ABORT
 	};
 	Action action = Action::CONTINUE;

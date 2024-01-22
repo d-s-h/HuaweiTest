@@ -29,7 +29,7 @@ void FileHasher::calcHashes()
   {
     IOJob job;
     job.filename = fi->name;
-    job.buffer = acquireReadBlock(OWNER_STAGE_SUBMIT, mBufferBlockCount / 2); // Limit buffer allocation so workers have ones
+    job.buffer = acquireMemBlock(OWNER_STAGE_SUBMIT, mBufferBlockCount / 2); // Limit buffer allocation so workers have ones
     job.bufferSize = mBlockSize;
     job.blockReadCallback = sReadBlockCallback;
     job.finishCallback = sReadFinishCallback;
@@ -76,7 +76,7 @@ IOStatus FileHasher::readBlockCallback(const uint8_t* block, const uint32_t byte
 
   // Supply IO with a new buffer to read in
   IOStatus status;
-  status.buffer = acquireReadBlock(OWNER_STAGE_READ, 0);
+  status.buffer = acquireMemBlock(OWNER_STAGE_READ, 0);
   status.bufferSize = mBlockSize;
   ctx->block = status.buffer; // Keep the new one to be released in the end.
   LOG("<-FileHasher::readBlockCallback\n");
@@ -97,7 +97,7 @@ void FileHasher::readFinishCallback(Context* ctx)
   assert(ctx);
 
   // Memory block isn't needed anymore for file reading
-  releaseReadBlock(ctx->block);
+  releaseMemBlock(ctx->block);
   delete ctx;
   LOG("<-FileHasher::readFinishCallback\n");
 }
@@ -121,7 +121,7 @@ void FileHasher::calcBlockHashCallback(Context* ctx)
   std::atomic<uint32_t>& blocksNotReady = ctx->blockChain->blocksNotReady;
 
   // Memory block isn't needed anymore for hash calc
-  releaseReadBlock(ctx->block);
+  releaseMemBlock(ctx->block);
   ctx->block = nullptr;
   ctx->size = 0;
 
@@ -159,7 +159,7 @@ void FileHasher::calcFileHashCallback(Context* ctx)
   LOG("<-FileHasher::calcFileHashCallback\n");
 }
 
-uint8_t* FileHasher::acquireReadBlock(uint8_t ownerId, int limit)
+uint8_t* FileHasher::acquireMemBlock(uint8_t ownerId, int limit)
 {
   LOG("->FileHasher::acquireReadBlock\n");
   assert(ownerId > 0);
@@ -190,7 +190,7 @@ uint8_t* FileHasher::acquireReadBlock(uint8_t ownerId, int limit)
   return block;
 }
 
-void FileHasher::releaseReadBlock(const uint8_t* block)
+void FileHasher::releaseMemBlock(const uint8_t* block)
 {
   size_t idx = (block - mBuffer.data()) / mBlockSize;
   LOG("->FileHasher::releaseReadBlock: idx %lld 0x%p\n", idx, block);

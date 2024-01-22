@@ -41,6 +41,7 @@ Further improvements:
 #include "Platform.h"
 #include "Hash.h"
 #include "AsyncMultiSet.h"
+#include "AsyncFileComparer.h"
 
 const int WORKER_THREADS = 1;
 const int CONCURRENT_IO = 1;
@@ -91,9 +92,12 @@ bool operator== (SizeHashKey const& lhs, SizeHashKey const& rhs)
   return (lhs.size == rhs.size) && (lhs.hash == rhs.hash);
 }
 
+
+
 void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet& set)
 {
   DataComparer comparer;
+  AsyncFileComparer fileComparer(0, 0, nullptr, nullptr);
 
   std::vector<int> insertIdxList(files.size());
 
@@ -102,6 +106,7 @@ void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet& se
     insertIdxList[i] = i;
   }
 
+  std::vector<AsyncFileComparer::Result> results;
   do
   {
     comparer.getQueue().clear();
@@ -116,25 +121,46 @@ void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet& se
     {
       const FileInfo* fi1 = files[e.first];
       const FileInfo* fi2 = files[e.second];
-      int res = 0;
-      size_t bytesRead = compareFiles(fi1->name, fi2->name, res);
-      comparer.addCompareResult(e.first, e.second, res);
-      insertIdxList.push_back(e.first);
+      fileComparer.enqueue(files[e.first], files[e.second]);
+
+      //int res = 0;
+      //size_t bytesRead = compareFiles(fi1->name, fi2->name, res);
     }
+
+    fileComparer.getResults(results);
+
+    for (const AsyncFileComparer::Result& res : results)
+    {
+      const AsyncFileComparer::FilePair& filePair = res.first;
+      int result = res.second;
+
+      auto it1 = std::find(files.begin(), files.end(), filePair.first);
+      assert(it1 != files.end());
+      int fileIdx1 = static_cast<int>(it1 - files.begin());
+      
+      auto it2 = std::find(files.begin(), files.end(), filePair.second);
+      assert(it2 != files.end());
+      int fileIdx2 = static_cast<int>(it2 - files.begin());
+
+      comparer.addCompareResult(fileIdx1, fileIdx2, result);
+      insertIdxList.push_back(fileIdx1);
+    }
+    results.clear();
+
   } while (comparer.getQueue().size() > 0);
 
 }
 
 DupFinder::DupFinder(int concurrentIO, int workerThreads):
-  threadPool(workerThreads),
-  ioPool(concurrentIO),
-  hasher(FILE_BLOCK_SIZE, (workerThreads + concurrentIO) * 2, &threadPool, &ioPool)
+  mThreadPool(workerThreads),
+  mIoPool(concurrentIO),
+  mHasher(FILE_BLOCK_SIZE, (workerThreads + concurrentIO) * 2, &mThreadPool, &mIoPool)
 {
 }
 
 void DupFinder::setHashFunction(HashFunction* func)
 {
-  hasher.setHashFunction(func);
+  mHasher.setHashFunction(func);
 }
 
 // Yes, the copy elision is in place, but I'd like to improve API design of the func to pass the result back not as a copy.
@@ -205,7 +231,7 @@ std::vector<std::vector<std::string>> DupFinder::findIdentical(const std::string
 
           if (fi.size > 0)
           {
-            hasher.enqueue(&fi);
+            mHasher.enqueue(&fi);
           }
           else
           {
@@ -216,7 +242,7 @@ std::vector<std::vector<std::string>> DupFinder::findIdentical(const std::string
         }
       }
     }
-    hasher.calcHashes();
+    mHasher.calcHashes();
   }
 
   // Sets of same size/hash files
@@ -339,12 +365,8 @@ std::vector<std::vector<std::string>> DupFinder::findIdentical(const std::string
     }
   }
 
-  std::sort(result.begin(), result.end(),
-    [](const auto& l, const auto& r)
-    {
-      return l[0] < r[0];
-    }
-  );
+  // Sort in the ascending order
+  std::sort(result.begin(), result.end(), std::less<>());
 
   // Set the old dir back to avoid side effects on external code.
   setCurrentDir(oldDir);

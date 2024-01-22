@@ -16,7 +16,7 @@ public:
   std::vector<std::vector<std::string>> findIdentical(const std::string& path);
 
 private:
-  ThreadPool threadPool;
-  IOPool ioPool;
-  FileHasher hasher;
+  ThreadPool mThreadPool;
+  IOPool mIoPool;
+  FileHasher mHasher;
 };

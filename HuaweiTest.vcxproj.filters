@@ -39,6 +39,9 @@
     <ClCompile Include="FileHasher.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="AsyncFileComparer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DupFinder.h">
@@ -63,6 +66,9 @@
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="FileHasher.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="AsyncFileComparer.h">
       <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>
