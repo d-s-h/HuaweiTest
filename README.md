@@ -43,12 +43,17 @@ For implementation details see comments in the source files.
 * Each IO request doesn't occupy a core so at least K + N file buffers are needed to perform K + N operations in the same time.
 
 # Further improvements
+* Bigger than 4GB files support. Currently it's not guaranteed and never tested.
 * Use more wide hashes like MD5/SHA-256/etc
 * Try using a merge sort instead of binary tree search with N * logN potential complexity.
   Now a not balanced binary tree is used which on average is N * logN but can give up to N * N complexity.
 * Simplify async code with coroutines or a task graph with dependencies.
-* Use block-chain (e.g. hashing of blocks split by page size) to avoid full file content comparison. Not worth usuing because files with the same hash/size are usually the same.
+* Use block-chain comparision (e.g. hashing of blocks split by page size) to avoid full file content comparison.
+  Not worth usuing because files with the same hash/size are usually the same.
 * Add command-line usage
+* Add heuristics (e.g. first and last byte comparision instead of full content)
+* Small files optimization: store small files (up to 16 bytes) in memory to avoid extra reads.
+* Better error handling
 * Better path handling
 * Multiplatform support
 * Open source
