@@ -76,11 +76,21 @@ struct SizeHashKeyHash
   }
 };
 
+struct FileInfoPairHash
+{
+  size_t operator()(const AsyncFileComparer::FilePair& key) const
+  {
+    return std::hash<decltype(key.first)>()(key.first) ^ std::hash<decltype(key.second)>()(key.second);
+  }
+};
+
+using FileInfoAsyncMultiSet = AsyncMultiSet<const FileInfo*>;
+
 struct SizeHashEntry
 {
   SizeHashEntry() {}
   std::vector<const FileInfo*> files;
-  AsyncMultiSet<int> multiSet;
+  FileInfoAsyncMultiSet multiSet;
 };
 
 using FileHashMap = std::unordered_map<SizeHashKey, SizeHashEntry, SizeHashKeyHash>;
@@ -90,91 +100,74 @@ bool operator== (SizeHashKey const& lhs, SizeHashKey const& rhs)
   return (lhs.size == rhs.size) && (lhs.hash == rhs.hash);
 }
 
-void process(const std::vector<const FileInfo*>& files, AsyncMultiSet<int>& set, AsyncFileComparer& fileComparer)
+void findDupContent(FileHashMap& fileHashMap, AsyncFileComparer& fileComparer)
 {
-  /*
-  using FilesToSetPair = std::pair< std::vector<const FileInfo*>
-  std::unordered_map<AsyncFileComparer::FilePair, AsyncMultiSet*> dmx;
-  std::unordered_map<AsyncFileComparer::FilePair, AsyncMultiSet*> dmx;
+  std::vector<FileInfoAsyncMultiSet*> sets; // Collection of sets to process
 
+  // Initial insert procedure
+  for (auto& it : fileHashMap)
+  {
+    SizeHashEntry& e = it.second;
+    int i = 0;
+    if (e.files.size() > 1 && e.files[0]->size > 0)
+    {
+      for (auto& f: e.files)
+      {
+        e.multiSet.insert(f);
+      }
+      sets.push_back(&e.multiSet);
+    }
+  }
+
+  std::unordered_map<AsyncFileComparer::FilePair, FileInfoAsyncMultiSet*, FileInfoPairHash> dmx;
   std::vector<AsyncFileComparer::Result> results;
 
-  do
+  int notResolvedSets = static_cast<int>(sets.size());
+  int progress = 0;
+  printf("\rProgress %d%%", progress);
+  while (fileComparer.getResults(results) || notResolvedSets > 0)
   {
-    //populate with files
-    for (const auto& r : results)
+    // Update the value each loop
+    notResolvedSets = 0;
+
+    // Populate sets with results
+    for (const AsyncFileComparer::Result& r : results)
     {
+      // demultiplex a result
       const AsyncFileComparer::FilePair& filePair = r.first;
       auto it = dmx.find(filePair);
       assert(it != dmx.end());
-      AsyncMultiSet* set = it->second;
+      FileInfoAsyncMultiSet* set = it->second;
 
-      auto it1 = std::find(files.begin(), files.end(), filePair.first);
-      assert(it1 != files.end());
-      int fileIdx1 = static_cast<int>(it1 - files.begin());
-
-      auto it2 = std::find(files.begin(), files.end(), filePair.second);
-      assert(it2 != files.end());
-      int fileIdx2 = static_cast<int>(it2 - files.begin());
-
-      set.resolve(fileIdx1, fileIdx2, result);
-
-      set->insert(
-    }
-  }
-  while (fileComparer.getResults(results));
-  */
-}
-
-void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet<int>& set, AsyncFileComparer& fileComparer)
-{
-  std::vector<int> insertIdxList(files.size());
-
-  for (int i = 0; i < files.size(); ++i)
-  {
-    insertIdxList[i] = i;
-  }
-
-  std::vector<AsyncFileComparer::Result> results;
-  do
-  {
-    set.getNotResolved().clear();
-
-    for (int i = 0; i < insertIdxList.size(); ++i)
-    {
-      set.insert(insertIdxList[i]);
-    }
-
-    insertIdxList.clear();
-    for (auto& e : set.getNotResolved())
-    {
-      const FileInfo* fi1 = files[e.first];
-      const FileInfo* fi2 = files[e.second];
-      fileComparer.enqueue(files[e.first], files[e.second]);
-    }
-
-    fileComparer.getResults(results);
-
-    for (const AsyncFileComparer::Result& res : results)
-    {
-      const AsyncFileComparer::FilePair& filePair = res.first;
-      int result = res.second;
-
-      auto it1 = std::find(files.begin(), files.end(), filePair.first);
-      assert(it1 != files.end());
-      int fileIdx1 = static_cast<int>(it1 - files.begin());
-      
-      auto it2 = std::find(files.begin(), files.end(), filePair.second);
-      assert(it2 != files.end());
-      int fileIdx2 = static_cast<int>(it2 - files.begin());
-
-      set.resolve(fileIdx1, fileIdx2, result);
-      insertIdxList.push_back(fileIdx1);
+      set->resolve(filePair.first, filePair.second, r.second);
     }
     results.clear();
 
-  } while (set.getNotResolved().size() > 0 || insertIdxList.size() > 0);
+    // Try to reinsert elements to sets
+    for (FileInfoAsyncMultiSet* set : sets)
+    {
+      // Steal the not resolved files queue
+      FileInfoAsyncMultiSet::Queue notResolved(std::move(set->getNotResolved()));
 
+      for (auto& e : notResolved)
+      {
+        set->insert(e.first);
+      }
+
+      // Get new array of non resolved items and enqueue to compare
+      for (auto& e : set->getNotResolved())
+      {
+        dmx.insert({ e, set }); // store a link to demultiplex a result later
+        fileComparer.enqueue(e.first, e.second);
+      }
+
+      notResolvedSets += set->getNotResolved().size() > 0;
+    }
+
+    progress = static_cast<int>(100.0f - 100.0f * notResolvedSets / sets.size());
+    printf("\rProgress %d%%", progress);
+  }
+  printf("\r");
 }
 
 // Assume that each IO request doesn't occupy a core
@@ -324,6 +317,12 @@ DupFinder::Result DupFinder::findIdentical(const std::string& path)
 
   {
     Profiler profileScope("Content compare");
+    findDupContent(fileHashMap, mFileComparer);
+  }
+
+  /*
+  {
+    Profiler profileScope("Content compare");
     size_t contentCompareProcessed = 0;
     for (auto& it : fileHashMap)
     {
@@ -339,7 +338,7 @@ DupFinder::Result DupFinder::findIdentical(const std::string& path)
     }
     printf("\r");
   }
-
+  */
   std::cout << "\rForming result..." << std::endl;
 
   std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
@@ -359,11 +358,10 @@ DupFinder::Result DupFinder::findIdentical(const std::string& path)
           while (itSet.hasNext())
           {
             std::vector<std::string> dups;
-            std::vector<int> indices = itSet.next();
-            for (int i = 0; i < indices.size(); ++i)
+            std::vector<const FileInfo*> dupFi = itSet.next();
+            for (int i = 0; i < dupFi.size(); ++i)
             {
-              int fileIdx = indices[i];
-              const FileInfo* fi = e.files[fileIdx];
+              const FileInfo* fi = dupFi[i];
               std::string narrow = converter.to_bytes(fi->name);
               dups.emplace_back(narrow);
 

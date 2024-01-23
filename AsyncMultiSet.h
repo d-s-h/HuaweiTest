@@ -30,7 +30,7 @@ public:
   }
 
   // Get the next element in the inorder traversal
-  std::vector<int>& next() {
+  std::vector<T>& next() {
     // The top of the stack contains the next element
     MultiSetNode<T>* current = stack.top();
     stack.pop();
