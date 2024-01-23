@@ -8,6 +8,9 @@
 #include "ThreadPool.h"
 #include "MemBlockPool.h"
 
+// Files can be feeded to this class to calculate hash.
+// Files are read in parallel using the IO pool.
+// File blocks are hashed in separate worker threads while next blocks are being read.
 class AsyncFileHasher
 {
 public:

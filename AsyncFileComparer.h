@@ -8,6 +8,9 @@
 #include "IOPool.h"
 #include "MemBlockPool.h"
 
+// Files can be feeded to this class to compare pairs of files byte by byte.
+// Files are read in parallel using the IO pool.
+// File blocks are compared in a separate worker thread while next blocks are being read.
 class AsyncFileComparer
 {
 public:
@@ -18,7 +21,10 @@ public:
   AsyncFileComparer(const AsyncFileComparer&) = delete;
   AsyncFileComparer& operator=(const AsyncFileComparer&) = delete;
 
+  // Use this function to feed files to the IO pool.
   bool enqueue(const FileInfo* fi1, const FileInfo* fi2);
+
+  // Retrieve results or wait when they are available.
   bool getResults(std::vector<Result>& results);
 
 private:

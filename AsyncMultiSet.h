@@ -19,31 +19,28 @@ struct MultiSetNode
 template <class T>
 class AsyncSetIterator {
 public:
-  AsyncSetIterator(MultiSetNode<T>* root) {
-    // Initialize the stack with the leftmost path from the root
+  AsyncSetIterator(MultiSetNode<T>* root)
+  {
     pushLeftPath(root);
   }
 
-  // Check if there are more elements to iterate
   bool hasNext() const {
     return !stack.empty();
   }
 
-  // Get the next element in the inorder traversal
-  std::vector<T>& next() {
-    // The top of the stack contains the next element
+  std::vector<T>& next()
+  {
     MultiSetNode<T>* current = stack.top();
     stack.pop();
 
-    // Move to the right subtree to process its leftmost path
     pushLeftPath(current->right);
 
     return current->keyEntries;
   }
 
 private:
-  // Helper function to push the leftmost path of a subtree onto the stack
-  void pushLeftPath(MultiSetNode<T>* node) {
+  void pushLeftPath(MultiSetNode<T>* node)
+  {
     while (node != nullptr) {
       stack.push(node);
       node = node->left;
@@ -53,6 +50,9 @@ private:
   std::stack<MultiSetNode<T>*> stack;
 };
 
+// The class works as the std::multiset, i.e. a binary tree which can store mutiple identical key elements in the same node.
+// It uses a not balanced binary tree so it's not as effective in search as the std::multiset.
+// There is an interface which allows to feed the set with comparision results in the async way.
 template<class T>
 class AsyncMultiSet
 {
@@ -81,6 +81,8 @@ public:
     remove(mRoot);
   }
 
+  // Returns false if couldn't insert an element.
+  // The failure element is stored in the not resolved queque.
   bool insert(T key)
   {
     if (mRoot == nullptr)
@@ -94,8 +96,13 @@ public:
       return insert(mRoot, key);
     }
   }
+
   AsyncSetIterator<T> getIterator() { return AsyncSetIterator(mRoot); }
+
+  // Obtain an array of failed to insert elements.
   Queue& getNotResolved() { return mQueue; }
+
+  // Feed with a comparison result for a particular pair of keys.
   void resolve(const T& l, const T& r, int res)  { mCompareResultMap.insert({ {l, r}, res }); }
 
 private:

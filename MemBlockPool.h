@@ -3,6 +3,8 @@
 #include <mutex>
 #include <vector>
 
+// Memory block allocator.
+// Blocks are organized in a pool so can be recycled effectively.
 class MemBlockPool
 {
 public:
@@ -11,6 +13,8 @@ public:
 	uint32_t getBlockSize() { return mBlockSize; }
 	uint32_t getBlockCount() { return static_cast<int>(mFreeBufferBlocks.size()); }
 
+	// Returns a free block immediately if available.
+	// Waits for a free block until it's available.
 	uint8_t* acquireMemBlock(uint32_t ownerId, int limit);
 	void releaseMemBlock(const uint8_t* block);
 

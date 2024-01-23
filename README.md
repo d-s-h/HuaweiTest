@@ -44,7 +44,9 @@ For implementation details see comments in the source files.
 
 # Further improvements
 * Use more wide hashes like MD5/SHA-256/etc
-* Try using a merge sort instead of binary tree search
+* Try using a merge sort instead of binary tree search with N * logN potential complexity.
+  Now a not balanced binary tree is used which on average is N * logN but can give up to N * N complexity.
+* Simplify async code with coroutines or a task graph with dependencies.
 * Use block-chain (e.g. hashing of blocks split by page size) to avoid full file content comparison. Not worth usuing because files with the same hash/size are usually the same.
 * Add command-line usage
 * Better path handling

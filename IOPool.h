@@ -12,6 +12,8 @@ struct IOBuffer
 using BlockCallbackFn = IOBuffer(const uint8_t* buffer, const uint64_t bytesRead, void* ctx);
 using FinishCallbackFn = void(void* ctx);
 
+// IO job description.
+// Memory buffers and callbacks are provided by user.
 struct IOJob
 {
 	uint32_t jobId = 0; // assigned when submitted
@@ -21,10 +23,10 @@ struct IOJob
 	BlockCallbackFn* blockReadCallback = nullptr;
 	FinishCallbackFn* finishCallback = nullptr;
 	void* ctx = nullptr;
-
-
 };
 
+// Read files in parallel using an OS specific API
+// Uses a pImpl idiom to hide platform specific implementation.
 class IOPool
 {
 public:

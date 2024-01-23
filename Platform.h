@@ -1,3 +1,8 @@
+/*
+ Various platform specific utilities.
+ Platform specific code is hidden in the cpp file.
+*/
+
 #pragma once
 #include <string>
 #include <unordered_map>

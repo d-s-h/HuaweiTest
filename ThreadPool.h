@@ -4,6 +4,8 @@
 
 using WorkCallbackFn = void(void* ctx);
 
+// Provides worker threads via an OS specific API
+// Uses a pImpl idiom to hide platform specific implementation.
 class ThreadPool
 {
 public:
