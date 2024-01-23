@@ -41,11 +41,11 @@ private:
     CompareRequest* req = nullptr;
   };
 
-  static IOStatus sBlockReadCallback(const uint8_t* block, const uint64_t bytesRead, void* ctx);
+  static IOBuffer sBlockReadCallback(const uint8_t* block, const uint64_t bytesRead, void* ctx);
   static void sReadFinishCallback(void* ctx);
   static void sCompareBlocksWork(void* ctx);
 
-  IOStatus blockReadCallback(const uint8_t* block, const uint32_t bytesRead, Context* ctx);
+  IOBuffer blockReadCallback(const uint8_t* block, const uint32_t bytesRead, Context* ctx);
   void readFinishCallback(Context* ctx);
   void compareBlocksWork(Context* ctx);
   void finishResult(const Result& result);

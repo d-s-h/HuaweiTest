@@ -56,14 +56,14 @@ void FileHasher::calcHashes()
   }
 }
 
-IOStatus FileHasher::sReadBlockCallback(const uint8_t* block, const uint64_t bytesRead, void* ctx)
+IOBuffer FileHasher::sReadBlockCallback(const uint8_t* block, const uint64_t bytesRead, void* ctx)
 {
   assert(ctx);
   Context* context = static_cast<Context*>(ctx);
   return context->hasher->readBlockCallback(block, static_cast<uint32_t>(bytesRead), context);
 }
 
-IOStatus FileHasher::readBlockCallback(const uint8_t* block, const uint32_t bytesRead, Context* ctx)
+IOBuffer FileHasher::readBlockCallback(const uint8_t* block, const uint32_t bytesRead, Context* ctx)
 {
   //LOG("->FileHasher::readBlockCallback: block 0x%p\n", block);
   assert(ctx);
@@ -77,7 +77,7 @@ IOStatus FileHasher::readBlockCallback(const uint8_t* block, const uint32_t byte
   ctx->readOffset += bytesRead;
 
   // Supply IO with a new buffer to read in
-  IOStatus status;
+  IOBuffer status;
   status.buffer = mMemBlockPool.acquireMemBlock(OWNER_STAGE_READ, 0);
   status.bufferSize = mBlockSize;
   ctx->block = status.buffer; // Keep the new one to be released in the end.

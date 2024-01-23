@@ -66,7 +66,7 @@ bool AsyncFileComparer::getResults(std::vector<Result>& results)
   return true;
 }
 
-IOStatus AsyncFileComparer::sBlockReadCallback(const uint8_t* block, const uint64_t bytesRead, void* ctx)
+IOBuffer AsyncFileComparer::sBlockReadCallback(const uint8_t* block, const uint64_t bytesRead, void* ctx)
 {
   assert(ctx);
   Context* context = static_cast<Context*>(ctx);
@@ -90,7 +90,7 @@ void AsyncFileComparer::sCompareBlocksWork(void* ctx)
   return context->fileComparer->compareBlocksWork(context);
 }
 
-IOStatus AsyncFileComparer::blockReadCallback(const uint8_t* block, const uint32_t bytesRead, Context* ctx)
+IOBuffer AsyncFileComparer::blockReadCallback(const uint8_t* block, const uint32_t bytesRead, Context* ctx)
 {
   uint32_t fileIdx = ctx->fileIdx;
   CompareRequest* req = ctx->req;
@@ -99,7 +99,7 @@ IOStatus AsyncFileComparer::blockReadCallback(const uint8_t* block, const uint32
   assert(blockOwner == UINT_MAX || blockOwner == req->jobIds[fileIdx]);
 
   // Allocate new buffer before pausing because it should be correctly cleaned up if aborted during pause
-  IOStatus status;
+  IOBuffer status;
   status.buffer = mMemBlockPool.acquireMemBlock(req->jobIds[fileIdx], 0); // allocate new memory for reading
   status.bufferSize = mMemBlockPool.getBlockSize();
   ctx->memBlock = status.buffer; // Store to release it when reading is finished

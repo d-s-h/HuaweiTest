@@ -3,20 +3,13 @@
 #include <memory>
 #include <string>
 
-struct IOStatus
+struct IOBuffer
 {
-	enum class Action
-	{
-		CONTINUE,
-		PAUSE,
-		ABORT
-	};
-	Action action = Action::CONTINUE;
 	uint8_t* buffer = nullptr;
 	uint32_t bufferSize = 0;
 };
 
-using BlockCallbackFn = IOStatus(const uint8_t* buffer, const uint64_t bytesRead, void* ctx);
+using BlockCallbackFn = IOBuffer(const uint8_t* buffer, const uint64_t bytesRead, void* ctx);
 using FinishCallbackFn = void(void* ctx);
 
 struct IOJob
@@ -46,7 +39,6 @@ public:
 	void abort(uint32_t jobId);
 
 	int getJobsQueued();
-	
 
 private:
 	std::unique_ptr<class IOPoolImpl> mImpl;

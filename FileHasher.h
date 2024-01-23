@@ -39,12 +39,12 @@ private:
     BlockChain* blockChain = nullptr;
   };
 
-  static IOStatus sReadBlockCallback(const uint8_t* block, const uint64_t bytesRead, void* ctx);
+  static IOBuffer sReadBlockCallback(const uint8_t* block, const uint64_t bytesRead, void* ctx);
   static void sReadFinishCallback(void* ctx);
   static void sCalcBlockHashCallback(void* ctx);
   static void sCalcFileHashCallback(void* ctx);
 
-  IOStatus readBlockCallback(const uint8_t* block, const uint32_t bytesRead, Context* ctx);
+  IOBuffer readBlockCallback(const uint8_t* block, const uint32_t bytesRead, Context* ctx);
   void readFinishCallback(Context* ctx);
   void calcBlockHashCallback(Context* ctx);
   void calcFileHashCallback(Context* ctx);

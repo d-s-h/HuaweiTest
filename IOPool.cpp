@@ -421,7 +421,7 @@ void IOPoolImpl::ioDispatcherThread()
       DWORD bytesRead = 0;
       ULONG_PTR key = NULL;
       LPOVERLAPPED overlapped = NULL;
-      IOStatus status;
+      IOBuffer status;
       size_t ioSlotIdx = 0;
       while (GetQueuedCompletionStatus(mCompletionPort.get(), &bytesRead, &key, &overlapped, INFINITE))
       {
@@ -522,14 +522,6 @@ void IOPoolImpl::ioDispatcherThread()
 
         releaseIOSlot(static_cast<int>(ioSlotIdx));
       }
-      else if (status.action == IOStatus::Action::PAUSE)
-      {
-        // The job was paused, that's ok
-      }
-      else
-      {
-        //assert(0);
-      }
 
       // Acquire the job queue again to check for outstanding work.
       lock.lock();
@@ -541,8 +533,6 @@ void IOPoolImpl::ioDispatcherThread()
     mAllJobsDoneCondition.notify_one();
     WLOG(L"<-IOPoolImpl::ioDispatcherThread: main loop\n");
   }
-
-
 }
 
 bool IOPoolImpl::pendingJobsEmpty()
