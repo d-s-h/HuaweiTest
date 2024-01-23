@@ -43,9 +43,7 @@ Further improvements:
 #include "AsyncMultiSet.h"
 #include "AsyncFileComparer.h"
 
-const int WORKER_THREADS = 1;
-const int CONCURRENT_IO = 2;
-const int FILE_BLOCK_SIZE = 2 * 1024 * 1024; // 16 MB
+const int FILE_BLOCK_SIZE = 16 * 1024 * 1024; // 16 MB
 
 class Profiler {
 public:

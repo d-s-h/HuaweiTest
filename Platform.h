@@ -2,15 +2,18 @@
 #include <string>
 #include <unordered_map>
 
+void DebugOut(const char* fmt, ...);
+void WDebugOut(const wchar_t* fmt, ...);
+
 #ifdef _DEBUG
 #define LOG(format, ...) \
   do { \
-		printf(format, ##__VA_ARGS__); \
+		DebugOut(format, ##__VA_ARGS__); \
   } while(false);
 
 #define WLOG(format, ...) \
   do { \
-		wprintf(format, ##__VA_ARGS__); \
+		WDebugOut(format, ##__VA_ARGS__); \
   } while(false);
 #else
 #define LOG(format, ...)

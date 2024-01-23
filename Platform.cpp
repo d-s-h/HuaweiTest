@@ -8,6 +8,26 @@
 
 int gError = 0; // I could use exceptions or change func API to pass an error code but use the global for simplicity.
 
+void WDebugOut(const wchar_t* fmt, ...)
+{
+  va_list argp;
+  va_start(argp, fmt);
+  wchar_t dbg_out[4096];
+  vswprintf_s(dbg_out, fmt, argp);
+  va_end(argp);
+  OutputDebugStringW(dbg_out);
+}
+
+void DebugOut(const char* fmt, ...)
+{
+  va_list argp;
+  va_start(argp, fmt);
+  char dbg_out[4096];
+  vsprintf_s(dbg_out, fmt, argp);
+  va_end(argp);
+  OutputDebugStringA(dbg_out);
+}
+
 // Custom deleter for HANDLE resources
 struct HandleDeleter
 {

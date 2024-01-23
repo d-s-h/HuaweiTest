@@ -11,12 +11,15 @@ public:
 	uint32_t getBlockSize() { return mBlockSize; }
 	uint32_t getBlockCount() { return static_cast<int>(mFreeBufferBlocks.size()); }
 
-	uint8_t* acquireMemBlock(uint8_t ownerId, int limit);
+	uint8_t* acquireMemBlock(uint32_t ownerId, int limit);
 	void releaseMemBlock(const uint8_t* block);
+
+	// debug purpose
+	uint32_t getOwnerId(const uint8_t* block);
 
 private:
 	uint32_t mBlockSize = 0;
-	std::vector<uint8_t> mFreeBufferBlocks;
+	std::vector<uint32_t> mFreeBufferBlocks;
 	std::vector<uint8_t> mBuffer;
 
 	std::mutex mMutex;
