@@ -1,6 +1,6 @@
 # High performance file duplicates finder
 
-## Task descriptions
+## Task description
 
 Consider N-core machines, and given folder path find all identical (by content) files under it.
 I.e. implement a function:
@@ -26,16 +26,27 @@ Please ensure that code uses concurrent computations as much as possible (assume
 and works well for both large and small files.
 
 
-# High-level overview of the program.
+# High-level overview of the program
 
-* Get a list of all files and their sizes
-* Use content compare for same size files only.
-* To compare files content feed IOCP with Min(K, N) threads for optimal performance.
-* Hash files content once read so compare next files by content only if hash/size are different
-* Do I need collision handling: compare by content if hash/size are the same? Heuristics?
+NOTE: This program uses a pedantical way to compare files. It compares file content byte by byte in case of hash collision! This significantly increases time of files processing.
 
-Feed IOCP with K files.
+* Get a list of all files and their sizes.
+* Use hash compare for unique size files only.
+* Use content compare for unique sizes and hash collided files only.
 
-Threads to spawn:
-Min(K, N) for optimal performance.
-If N < K, consider spawning less threads but keep more requests? Not sure how to better handle this using high-level IOCP.
+* To calculate hashes files are feed to IOCP with K concurrent IO using N worker threads for hash blocks calculation.
+* To compare files content files are feed to IOCP with K concurrent IO using N worker threads for files pair processing.
+
+For implementation details see comments in the source files.
+
+## Assumptions
+* Each IO request doesn't occupy a core so at least K + N file buffers are needed to perform K + N operations in the same time.
+
+# Further improvements
+* Use more wide hashes like MD5/SHA-256/etc
+* Try using a merge sort instead of binary tree search
+* Use block-chain (e.g. hashing of blocks split by page size) to avoid full file content comparison. Not worth usuing because files with the same hash/size are usually the same.
+* Add command-line usage
+* Better path handling
+* Multiplatform support
+* Open source

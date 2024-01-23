@@ -1,32 +1,15 @@
 /*
-
-Assumptions:
-*
-*
-*
+Implementation details
 
 Algorithm:
-* Gather buckets of files with the same size
-* If a bucket contains more than 2 files, then start a content compare multithreaded procedure.
-* Calculate hash for each file in the bucket.
-* Group files by hash
-* Extra step: make subgrouping by exact content compare
-* Write out file groups and subgroups if any.
-* Take next bucket
-* Extra step: spawn separate threads for each bucket and feed IOCP from multiple buckets.
-
-Content compare algorithm for identical size/hash files (called a subgroup):
-* Split files by K sets.
-* Sort files in each set using up to K concurrent IO requests
-* Do logN set merges using by up to K concurrent IO requests
-
-Further improvements:
-* Use MD5 hash
-* Use block-chain (e.g. hashing of blocks split by page size) to avoid full file content comparison. Not worth usuing because files with the same hash/size are usually the same.
-* Better path handling
-* Multiplatform support
-* Open source
+- Gather buckets of files with unique size.
+- If a bucket contains more than 2 files, then start a content compare multithreaded procedure.
+- Calculate hash for each file in the bucket.
+- Group files by hash and size.
+- Pedantical step: compare file content for files with identical hash and size. Use a multiset to avoid extra comparision.
+- Gather sorted results
 */
+
 #include "DupFinder.h"
 
 #include <iostream>
@@ -43,6 +26,7 @@ Further improvements:
 #include "AsyncMultiSet.h"
 #include "AsyncFileComparer.h"
 
+// The bigger the block size the less load on IO and more efficient CPU work.
 const int FILE_BLOCK_SIZE = 16 * 1024 * 1024; // 16 MB
 
 class Profiler {
@@ -109,6 +93,7 @@ void findDupContent(FileHashMap& fileHashMap, AsyncFileComparer& fileComparer)
   {
     SizeHashEntry& e = it.second;
     int i = 0;
+    // Compare content of files with the same size/hash (if there is more than 1 file and they're not empty)
     if (e.files.size() > 1 && e.files[0]->size > 0)
     {
       for (auto& f: e.files)
@@ -191,20 +176,8 @@ void DupFinder::setHashFunction(HashFunction* func)
 // Yes, the copy elision is in place, but I'd like to improve API design of the func to pass the result back not as a copy.
 DupFinder::Result DupFinder::findIdentical(const std::string& path)
 {
-/*
-  - Gather buckets of files with the same size
-  - If a bucket contains more than 2 files, then start a content compare multithreaded procedure.
-  - Calculate hash for each file in the bucket.
-  - Group files by hash
-  - Extra step : make subgrouping by exact content compare
-  - Write out file groups and subgroups if any.
-  - Take next bucket
-  - Extra step : spawn separate threads for each bucket and feed IOCP from multiple buckets.
-*/
-
   Profiler profileScope("findIdentical");
   Result result;
-
 
   std::wstring oldDir;
   if (!getCurrentDir(oldDir))
@@ -302,44 +275,12 @@ DupFinder::Result DupFinder::findIdentical(const std::string& path)
     }
   }
 
-  // Compare content of files with the same size/hash (if there is more than 1 file and they're not empty)
-  size_t contentCompareGroups = 0;
-  for (auto& it : fileHashMap)
   {
-    SizeHashEntry& e = it.second;
-    if (e.files.size() > 1 && e.files[0]->size > 0)
-    {
-      ++contentCompareGroups;
-    }
-  }
-  
-  std::cout << "\rContent compare..." << std::endl;
-
-  {
+    std::cout << "\rContent compare..." << std::endl;
     Profiler profileScope("Content compare");
     findDupContent(fileHashMap, mFileComparer);
+    std::cout << "\rForming result..." << std::endl;
   }
-
-  /*
-  {
-    Profiler profileScope("Content compare");
-    size_t contentCompareProcessed = 0;
-    for (auto& it : fileHashMap)
-    {
-      SizeHashEntry& e = it.second;
-      int i = 0;
-      if (e.files.size() > 1 && e.files[0]->size > 0)
-      {
-        findDupContent(e.files, e.multiSet, mFileComparer);
-        int progress = static_cast<int>(100.0f * contentCompareProcessed / contentCompareGroups);
-        printf("\rProgress %d%%", progress);
-        ++contentCompareProcessed;
-      }
-    }
-    printf("\r");
-  }
-  */
-  std::cout << "\rForming result..." << std::endl;
 
   std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
 

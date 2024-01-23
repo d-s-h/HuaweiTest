@@ -530,11 +530,6 @@ bool testcase_StressHash()
 	return true;
 }
 
-bool testcase_StressContent()
-{
-	return false;
-}
-
 bool testcase_Stress()
 {
 	// Clean up previous runs if any
@@ -615,10 +610,9 @@ void testsuite()
 		testcase_SameSizeHash,
 		testcase_SmallFiles,
 		testcase_VerySmallFiles,
-		//testcase_BigFiles,
-		//testcase_BigFilesNoHash,
-		//testcase_StressHash,
-		//testcase_StressContent,
+		testcase_BigFiles,
+		testcase_BigFilesNoHash,
+		testcase_StressHash,
 		testcase_Stress
 	};
 	
