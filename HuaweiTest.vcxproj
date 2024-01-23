@@ -130,7 +130,6 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="AsyncFileComparer.cpp" />
-    <ClCompile Include="AsyncMultiSet.cpp" />
     <ClCompile Include="DupFinder.cpp" />
     <ClCompile Include="AsyncFileHasher.cpp" />
     <ClCompile Include="IOPool.cpp" />

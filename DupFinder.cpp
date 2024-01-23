@@ -80,7 +80,7 @@ struct SizeHashEntry
 {
   SizeHashEntry() {}
   std::vector<const FileInfo*> files;
-  AsyncMultiSet multiSet;
+  AsyncMultiSet<int> multiSet;
 };
 
 using FileHashMap = std::unordered_map<SizeHashKey, SizeHashEntry, SizeHashKeyHash>;
@@ -90,8 +90,11 @@ bool operator== (SizeHashKey const& lhs, SizeHashKey const& rhs)
   return (lhs.size == rhs.size) && (lhs.hash == rhs.hash);
 }
 
-void process(const std::vector<const FileInfo*>& files, AsyncMultiSet& set, AsyncFileComparer& fileComparer)
-{/*
+void process(const std::vector<const FileInfo*>& files, AsyncMultiSet<int>& set, AsyncFileComparer& fileComparer)
+{
+  /*
+  using FilesToSetPair = std::pair< std::vector<const FileInfo*>
+  std::unordered_map<AsyncFileComparer::FilePair, AsyncMultiSet*> dmx;
   std::unordered_map<AsyncFileComparer::FilePair, AsyncMultiSet*> dmx;
 
   std::vector<AsyncFileComparer::Result> results;
@@ -101,17 +104,29 @@ void process(const std::vector<const FileInfo*>& files, AsyncMultiSet& set, Asyn
     //populate with files
     for (const auto& r : results)
     {
-      auto it = dmx.find(r.first);
+      const AsyncFileComparer::FilePair& filePair = r.first;
+      auto it = dmx.find(filePair);
       assert(it != dmx.end());
       AsyncMultiSet* set = it->second;
 
+      auto it1 = std::find(files.begin(), files.end(), filePair.first);
+      assert(it1 != files.end());
+      int fileIdx1 = static_cast<int>(it1 - files.begin());
+
+      auto it2 = std::find(files.begin(), files.end(), filePair.second);
+      assert(it2 != files.end());
+      int fileIdx2 = static_cast<int>(it2 - files.begin());
+
+      set.resolve(fileIdx1, fileIdx2, result);
+
+      set->insert(
     }
   }
   while (fileComparer.getResults(results));
   */
 }
 
-void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet& set, AsyncFileComparer& fileComparer)
+void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet<int>& set, AsyncFileComparer& fileComparer)
 {
   std::vector<int> insertIdxList(files.size());
 

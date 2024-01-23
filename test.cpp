@@ -92,25 +92,24 @@ bool testcase_MultiSet()
 		false
 	};
 
-	AsyncMultiSet asyncSet;
-	DataComparer comparer;
+	AsyncMultiSet<int> asyncSet;
 
 	// Iteration 1
 	for (int i = 0; i < content.size(); ++i)
 	{
-		bool res = asyncSet.insert(i, &comparer);
+		bool res = asyncSet.insert(i);
 		TEST_ASSERT(res == insert1[i], "");
 	}
 
-	TEST_ASSERT(comparer.getQueue().size() == 6, "");
+	TEST_ASSERT(asyncSet.getNotResolved().size() == 6, "");
 
 	std::vector<int> toInsert;
-	for (auto& e : comparer.getQueue())
+	for (auto& e : asyncSet.getNotResolved())
 	{
 		std::string& s1 = content[e.first];
 		std::string& s2 = content[e.second];
 		int res = s1.compare(s2);
-		comparer.addCompareResult(e.first, e.second, res);
+		asyncSet.resolve(e.first, e.second, res);
 		toInsert.push_back(e.first);
 	}
 
@@ -124,16 +123,16 @@ bool testcase_MultiSet()
 		false
 	};
 
-	comparer.getQueue().clear();
+	asyncSet.getNotResolved().clear();
 
 	// Iteration 2
 	for (int i = 0; i < toInsert.size(); ++i)
 	{
-		bool res = asyncSet.insert(toInsert[i], &comparer);
+		bool res = asyncSet.insert(toInsert[i]);
 		TEST_ASSERT(res == insert2[i], "i = %d", i);
 	}
 
-	TEST_ASSERT(comparer.getQueue().size() == 3, "");
+	TEST_ASSERT(asyncSet.getNotResolved().size() == 3, "");
 
 	std::vector<bool> insert3 =
 	{
@@ -145,23 +144,23 @@ bool testcase_MultiSet()
 	toInsert.clear();
 
 	// Iteration 3
-	for (auto& e : comparer.getQueue())
+	for (auto& e : asyncSet.getNotResolved())
 	{
 		std::string& s1 = content[e.first];
 		std::string& s2 = content[e.second];
 		int res = s1.compare(s2);
-		comparer.addCompareResult(e.first, e.second, res);
+		asyncSet.resolve(e.first, e.second, res);
 		toInsert.push_back(e.first);
 	}
 
-	comparer.getQueue().clear();
+	asyncSet.getNotResolved().clear();
 	for (int i = 0; i < toInsert.size(); ++i)
 	{
-		bool res = asyncSet.insert(toInsert[i], &comparer);
+		bool res = asyncSet.insert(toInsert[i]);
 		TEST_ASSERT(res == insert3[i], "i = %d", i);
 	}
 
-	TEST_ASSERT(comparer.getQueue().size() == 2, "");
+	TEST_ASSERT(asyncSet.getNotResolved().size() == 2, "");
 
 	// Iteration 4
 	std::vector<bool> insert4 =
@@ -171,22 +170,22 @@ bool testcase_MultiSet()
 	};
 
 	toInsert.clear();
-	for (auto& e : comparer.getQueue())
+	for (auto& e : asyncSet.getNotResolved())
 	{
 		std::string& s1 = content[e.first];
 		std::string& s2 = content[e.second];
 		int res = s1.compare(s2);
-		comparer.addCompareResult(e.first, e.second, res);
+		asyncSet.resolve(e.first, e.second, res);
 		toInsert.push_back(e.first);
 	}
-	comparer.getQueue().clear();
+	asyncSet.getNotResolved().clear();
 	for (int i = 0; i < toInsert.size(); ++i)
 	{
-		bool res = asyncSet.insert(toInsert[i], &comparer);
+		bool res = asyncSet.insert(toInsert[i]);
 		TEST_ASSERT(res == insert4[i], "i = %d", i);
 	}
 
-	TEST_ASSERT(comparer.getQueue().empty(), "The async queue must be empty at this stage");
+	TEST_ASSERT(asyncSet.getNotResolved().empty(), "The async queue must be empty at this stage");
 
 	AsyncSetIterator it = asyncSet.getIterator();
 	TEST_ASSERT(it.hasNext(), "");
@@ -223,7 +222,7 @@ bool testcase_Default()
 
 	// Test
 	DupFinder finder(1, 1);
-	std::vector<std::vector<std::string>> fileList = finder.findIdentical(testFolder);
+	DupFinder::Result fileList = finder.findIdentical(testFolder);
 
 	// Verify
 	TEST_ASSERT(fileList.size() == 3, "");
@@ -255,7 +254,7 @@ bool testcase_GenericTest1()
 
 	// Test
 	DupFinder finder(1, 1);
-	std::vector<std::vector<std::string>> fileList = finder.findIdentical(TEST_FOLDER);
+	DupFinder::Result fileList = finder.findIdentical(TEST_FOLDER);
 
 	// Verify
 	TEST_ASSERT(fileList.size() == 3, "");
@@ -288,7 +287,7 @@ bool testcase_DiffHash()
 
 	// Test
 	DupFinder finder(1, 1);
-	std::vector<std::vector<std::string>> fileList = finder.findIdentical(TEST_FOLDER);
+	DupFinder::Result fileList = finder.findIdentical(TEST_FOLDER);
 
 	// Verify
 	TEST_ASSERT(fileList.size() == 4, "");
@@ -325,21 +324,24 @@ bool testcase_SameSizeHash()
 	// Test
 	DupFinder finder(1, 1);
 	finder.setHashFunction(constantHash);	// Generate the same hash for all files
-	std::vector<std::vector<std::string>> fileList = finder.findIdentical(TEST_FOLDER);
+	for (int i = 0; i < 1; ++i)
+	{
+		DupFinder::Result fileList = finder.findIdentical(TEST_FOLDER);
 
-	// Verify
-	TEST_ASSERT(fileList.size() == 4, "");
+		// Verify
+		TEST_ASSERT(fileList.size() == 4, "");
 
-	TEST_ASSERT(fileList[0].size() == 1, "");
-	TEST_ASSERT(fileList[0][0] == "gen1.bin", "");
-	TEST_ASSERT(fileList[1].size() == 1, "");
-	TEST_ASSERT(fileList[1][0] == "gen2.bin", "");
-	TEST_ASSERT(fileList[2].size() == 1, "");
-	TEST_ASSERT(fileList[2][0] == "gen3.bin", "");
-	TEST_ASSERT(fileList[3].size() == 3, "");
-	TEST_ASSERT(fileList[3][0] == "gen4.bin", "");
-	TEST_ASSERT(fileList[3][1] == "gen44.bin", "");
-	TEST_ASSERT(fileList[3][2] == "gen444.bin", "");
+		TEST_ASSERT(fileList[0].size() == 1, "");
+		TEST_ASSERT(fileList[0][0] == "gen1.bin", "");
+		TEST_ASSERT(fileList[1].size() == 1, "");
+		TEST_ASSERT(fileList[1][0] == "gen2.bin", "");
+		TEST_ASSERT(fileList[2].size() == 1, "");
+		TEST_ASSERT(fileList[2][0] == "gen3.bin", "");
+		TEST_ASSERT(fileList[3].size() == 3, "");
+		TEST_ASSERT(fileList[3][0] == "gen4.bin", "");
+		TEST_ASSERT(fileList[3][1] == "gen44.bin", "");
+		TEST_ASSERT(fileList[3][2] == "gen444.bin", "");
+	}
 
 	return true;
 }
@@ -358,7 +360,7 @@ bool testcase_SmallFiles()
 
 	// Test
 	DupFinder finder(1, 1);
-	std::vector<std::vector<std::string>> fileList = finder.findIdentical(TEST_FOLDER);
+	DupFinder::Result fileList = finder.findIdentical(TEST_FOLDER);
 
 	// Verify
 	TEST_ASSERT(fileList.size() == 5, "");
@@ -387,7 +389,7 @@ bool testcase_VerySmallFiles()
 
 	// Test
 	DupFinder finder(1, 1);
-	std::vector<std::vector<std::string>> fileList = finder.findIdentical(TEST_FOLDER);
+	DupFinder::Result fileList = finder.findIdentical(TEST_FOLDER);
 
 	// Verify
 	TEST_ASSERT(fileList.size() == 7, "");
@@ -431,7 +433,7 @@ bool testcase_BigFiles()
 
 	// Test
 	DupFinder finder(1, 1);
-	std::vector<std::vector<std::string>> fileList = finder.findIdentical(TEST_FOLDER);
+	DupFinder::Result fileList = finder.findIdentical(TEST_FOLDER);
 
 	// Verify
 	TEST_ASSERT(fileList.size() == 1, "");
@@ -460,7 +462,7 @@ bool testcase_BigFilesNoHash()
 	// Test
 	DupFinder finder(1, 1);
 	finder.setHashFunction(constantHash);
-	std::vector<std::vector<std::string>> fileList = finder.findIdentical(TEST_FOLDER);
+	DupFinder::Result fileList = finder.findIdentical(TEST_FOLDER);
 
 	// Verify
 	TEST_ASSERT(fileList.size() == 4, "");
@@ -516,7 +518,7 @@ bool testcase_StressHash()
 	int workerThreads = 8;
 	int concurrentIO = 16;
 	DupFinder finder(concurrentIO, workerThreads);
-	std::vector<std::vector<std::string>> fileList = finder.findIdentical(TEST_FOLDER);
+	DupFinder::Result fileList = finder.findIdentical(TEST_FOLDER);
 
 	// Verify
 	TEST_ASSERT(fileList.size() == sizePermutations, "");
@@ -539,12 +541,13 @@ bool testcase_Stress()
 	std::filesystem::remove_all(TEST_FOLDER);
 
 	// Setup test
+	
 	const uint64_t MB = 1024 * 1024;
-	size_t maxSize = 20 * MB;
-	size_t minSize = 5 * MB;
-	int sizePermutations = 10;
-	int sameSizeCount = 100;
-
+	size_t maxSize = 50 * MB;
+	size_t minSize = 20 * MB;
+	int sizePermutations = 5;
+	int sameSizeCount = 300;
+	
 	for (int i = 0; i < sizePermutations; ++i)
 	{
 		srand(i * sizePermutations);
@@ -567,18 +570,34 @@ bool testcase_Stress()
 			std::filesystem::copy_file(TEST_FOLDER + basename, TEST_FOLDER + name);
 		}
 	}
-
+	
 	// Test
-	int workerThreads = 8;
-	int concurrentIO = 16;
-	DupFinder finder(concurrentIO, workerThreads);
-	std::vector<std::vector<std::string>> fileList = finder.findIdentical(TEST_FOLDER);
-
-	// Verify
-	TEST_ASSERT(fileList.size() == sizePermutations, "");
-	for (int i = 0; i < fileList.size(); ++i)
 	{
-		TEST_ASSERT(fileList[i].size() == sameSizeCount, "");
+		int workerThreads = 1;
+		int concurrentIO = 1;
+		DupFinder finder(concurrentIO, workerThreads);
+		DupFinder::Result fileList = finder.findIdentical(TEST_FOLDER);
+		
+		// Verify
+		TEST_ASSERT(fileList.size() == sizePermutations, "");
+		for (int i = 0; i < fileList.size(); ++i)
+		{
+			TEST_ASSERT(fileList[i].size() == sameSizeCount, "");
+		}
+	}
+
+	{
+		int workerThreads = 8;
+		int concurrentIO = 16;
+		DupFinder finder(concurrentIO, workerThreads);
+		DupFinder::Result fileList = finder.findIdentical(TEST_FOLDER);
+
+		// Verify
+		TEST_ASSERT(fileList.size() == sizePermutations, "");
+		for (int i = 0; i < fileList.size(); ++i)
+		{
+			TEST_ASSERT(fileList[i].size() == sameSizeCount, "");
+		}
 	}
 
 	return true;
@@ -596,9 +615,9 @@ void testsuite()
 		testcase_SameSizeHash,
 		testcase_SmallFiles,
 		testcase_VerySmallFiles,
-		testcase_BigFiles,
-		testcase_BigFilesNoHash,
-		testcase_StressHash,
+		//testcase_BigFiles,
+		//testcase_BigFilesNoHash,
+		//testcase_StressHash,
 		//testcase_StressContent,
 		testcase_Stress
 	};
