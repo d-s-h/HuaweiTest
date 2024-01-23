@@ -3,25 +3,16 @@
 #include <vector>
 #include <stack>
 #include <map>
+#include <algorithm>
+#include <cassert>
 
+// Node structure for the binary tree
 struct MultiSetNode
 {
   std::vector<int> keyEntries;
   MultiSetNode* left = nullptr;
   MultiSetNode* right = nullptr;
 };
-
-template<typename T>
-class IAsyncCompare
-{
-public:
-  virtual ~IAsyncCompare() {}
-
-  virtual bool getCompare(const T& l, const T& r, int& result) = 0;
-  virtual void asyncCompare(const T&, const T&) = 0;
-};
-
-// Node structure for the binary tree
 
 // Iterator for inorder traversal of a binary tree
 class AsyncSetIterator {
@@ -63,47 +54,27 @@ private:
 class AsyncMultiSet
 {
 public:
-  ~AsyncMultiSet();
-  bool insert(int key, IAsyncCompare<int>* comparator);
-  AsyncSetIterator getIterator() { return AsyncSetIterator(mRoot); }
-
-private:
-  bool insert(MultiSetNode* root, int key, IAsyncCompare<int>* comparator);
-  void remove(MultiSetNode* node);
-  MultiSetNode* mRoot = nullptr;
-};
-
-class DataComparer : public IAsyncCompare<int>
-{
-public:
   using Queue = std::vector<std::pair<int, int>>;
 
-  DataComparer() {}
+  AsyncMultiSet() = default;
+  AsyncMultiSet(const AsyncMultiSet&) = delete;
+  AsyncMultiSet& operator=(const AsyncMultiSet&) = delete;
+  AsyncMultiSet(AsyncMultiSet&& other);
+  AsyncMultiSet& operator=(AsyncMultiSet&& other);
+  ~AsyncMultiSet();
 
-  bool getCompare(const int& l, const int& r, int& result) override
-  {
-    auto it = mCompareResultMap.find({ l, r });
-    if (it != mCompareResultMap.end())
-    {
-      result = it->second;
-      return true;
-    }
-    return false;
-  }
-
-  void asyncCompare(const int& l, const int& r) override
-  {
-    mQueue.push_back({ l , r });
-  }
-
-  void addCompareResult(const int& l, const int& r, int8_t res)
-  {
-    mCompareResultMap.insert({ {l, r}, res });
-  }
-
-  Queue& getQueue() { return mQueue; }
+  bool insert(int key);
+  AsyncSetIterator getIterator() { return AsyncSetIterator(mRoot); }
+  Queue& getNotResolved() { return mQueue; }
+  void resolve(const int& l, const int& r, int8_t res)  { mCompareResultMap.insert({ {l, r}, res }); }
 
 private:
+  bool insert(MultiSetNode* root, int key);
+  void remove(MultiSetNode* node);
+  bool getCompare(const int& l, const int& r, int& result);
+  void asyncCompare(const int& l, const int& r) { mQueue.push_back({ l , r }); }
+
+  MultiSetNode* mRoot = nullptr;
   std::map< std::pair<int, int>, int8_t> mCompareResultMap;
   Queue mQueue;
 };

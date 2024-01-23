@@ -90,13 +90,29 @@ bool operator== (SizeHashKey const& lhs, SizeHashKey const& rhs)
   return (lhs.size == rhs.size) && (lhs.hash == rhs.hash);
 }
 
+void process(const std::vector<const FileInfo*>& files, AsyncMultiSet& set, AsyncFileComparer& fileComparer)
+{/*
+  std::unordered_map<AsyncFileComparer::FilePair, AsyncMultiSet*> dmx;
 
+  std::vector<AsyncFileComparer::Result> results;
+
+  do
+  {
+    //populate with files
+    for (const auto& r : results)
+    {
+      auto it = dmx.find(r.first);
+      assert(it != dmx.end());
+      AsyncMultiSet* set = it->second;
+
+    }
+  }
+  while (fileComparer.getResults(results));
+  */
+}
 
 void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet& set, AsyncFileComparer& fileComparer)
 {
-  DataComparer comparer;
-  
-
   std::vector<int> insertIdxList(files.size());
 
   for (int i = 0; i < files.size(); ++i)
@@ -107,15 +123,15 @@ void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet& se
   std::vector<AsyncFileComparer::Result> results;
   do
   {
-    comparer.getQueue().clear();
+    set.getNotResolved().clear();
 
     for (int i = 0; i < insertIdxList.size(); ++i)
     {
-      set.insert(insertIdxList[i], &comparer);
+      set.insert(insertIdxList[i]);
     }
 
     insertIdxList.clear();
-    for (auto& e : comparer.getQueue())
+    for (auto& e : set.getNotResolved())
     {
       const FileInfo* fi1 = files[e.first];
       const FileInfo* fi2 = files[e.second];
@@ -137,12 +153,12 @@ void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet& se
       assert(it2 != files.end());
       int fileIdx2 = static_cast<int>(it2 - files.begin());
 
-      comparer.addCompareResult(fileIdx1, fileIdx2, result);
+      set.resolve(fileIdx1, fileIdx2, result);
       insertIdxList.push_back(fileIdx1);
     }
     results.clear();
 
-  } while (comparer.getQueue().size() > 0 || insertIdxList.size() > 0);
+  } while (set.getNotResolved().size() > 0 || insertIdxList.size() > 0);
 
 }
 

@@ -1,5 +1,20 @@
 #include "AsyncMultiSet.h"
 
+AsyncMultiSet::AsyncMultiSet(AsyncMultiSet&& other)
+{
+  std::swap(mRoot, other.mRoot);
+  std::swap(mCompareResultMap, other.mCompareResultMap);
+  std::swap(mQueue, other.mQueue);
+}
+
+AsyncMultiSet& AsyncMultiSet::operator=(AsyncMultiSet&& other)
+{
+  std::swap(mRoot, other.mRoot);
+  std::swap(mCompareResultMap, other.mCompareResultMap);
+  std::swap(mQueue, other.mQueue);
+  return *this;
+}
+
 AsyncMultiSet::~AsyncMultiSet()
 {
   remove(mRoot);
@@ -15,7 +30,18 @@ void AsyncMultiSet::remove(MultiSetNode* node)
   }
 }
 
-bool AsyncMultiSet::insert(int key, IAsyncCompare<int>* comparator)
+inline bool AsyncMultiSet::getCompare(const int& l, const int& r, int& result)
+{
+  auto it = mCompareResultMap.find({ l, r });
+  if (it != mCompareResultMap.end())
+  {
+    result = it->second;
+    return true;
+  }
+  return false;
+}
+
+bool AsyncMultiSet::insert(int key)
 {
   if (mRoot == nullptr)
   {
@@ -25,14 +51,14 @@ bool AsyncMultiSet::insert(int key, IAsyncCompare<int>* comparator)
   }
   else
   {
-    return insert(mRoot, key, comparator);
+    return insert(mRoot, key);
   }
 }
 
-bool AsyncMultiSet::insert(MultiSetNode* node, int key, IAsyncCompare<int>* comparator)
+bool AsyncMultiSet::insert(MultiSetNode* node, int key)
 {
   int compareResult = 0;
-  if (comparator->getCompare(key, node->keyEntries[0], compareResult))
+  if (getCompare(key, node->keyEntries[0], compareResult))
   {
     if (compareResult == 0)
     {
@@ -44,7 +70,7 @@ bool AsyncMultiSet::insert(MultiSetNode* node, int key, IAsyncCompare<int>* comp
     {
       if (node->left)
       {
-        return insert(node->left, key, comparator);
+        return insert(node->left, key);
       }
       else
       {
@@ -57,7 +83,7 @@ bool AsyncMultiSet::insert(MultiSetNode* node, int key, IAsyncCompare<int>* comp
     {
       if (node->right)
       {
-        return insert(node->right, key, comparator);
+        return insert(node->right, key);
       }
       else
       {
@@ -70,7 +96,7 @@ bool AsyncMultiSet::insert(MultiSetNode* node, int key, IAsyncCompare<int>* comp
   else
   {
     // Compare result isn't yet available, add to the queue.
-    comparator->asyncCompare(key, node->keyEntries[0]);
+    asyncCompare(key, node->keyEntries[0]);
     return false;
   }
 }

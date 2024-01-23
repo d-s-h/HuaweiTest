@@ -12,6 +12,8 @@ class AsyncFileHasher
 {
 public:
   AsyncFileHasher(uint32_t blockSize, uint32_t bufferBlockCount, ThreadPool& threadPool, IOPool& ioPool);
+  AsyncFileHasher(const AsyncFileHasher&) = delete;
+  AsyncFileHasher& operator=(const AsyncFileHasher&) = delete;
 
   void setHashFunction(HashFunction* fn);
   void enqueue(FileInfo* fi);
