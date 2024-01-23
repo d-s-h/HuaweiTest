@@ -36,7 +36,7 @@
     <ClCompile Include="ThreadPool.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="FileHasher.cpp">
+    <ClCompile Include="AsyncFileHasher.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="AsyncFileComparer.cpp">
@@ -68,7 +68,7 @@
     <ClInclude Include="ThreadPool.h">
       <Filter>Source Files</Filter>
     </ClInclude>
-    <ClInclude Include="FileHasher.h">
+    <ClInclude Include="AsyncFileHasher.h">
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="AsyncFileComparer.h">

@@ -1,8 +1,8 @@
-#include "FileHasher.h"
+#include "AsyncFileHasher.h"
 
 #include <cassert>
 
-FileHasher::FileHasher(uint32_t blockSize, uint32_t concurrentFilesLimit, ThreadPool& threadPool, IOPool& ioPool) :
+AsyncFileHasher::AsyncFileHasher(uint32_t blockSize, uint32_t concurrentFilesLimit, ThreadPool& threadPool, IOPool& ioPool) :
   mBlockSize(blockSize),
   mConcurrentFilesLimit(concurrentFilesLimit),
   mThreadPool(threadPool),
@@ -13,17 +13,17 @@ FileHasher::FileHasher(uint32_t blockSize, uint32_t concurrentFilesLimit, Thread
   mHashFunction = MurmurHash64A; // default
 }
 
-void FileHasher::setHashFunction(HashFunction* fn)
+void AsyncFileHasher::setHashFunction(HashFunction* fn)
 {
   mHashFunction = fn;
 }
 
-void FileHasher::enqueue(FileInfo* fi)
+void AsyncFileHasher::enqueue(FileInfo* fi)
 {
   mFiles.push_back(fi);
 }
 
-void FileHasher::calcHashes()
+void AsyncFileHasher::calcHashes()
 {
   mProcessedFiles = 0;
 
@@ -56,16 +56,16 @@ void FileHasher::calcHashes()
   }
 }
 
-IOBuffer FileHasher::sReadBlockCallback(const uint8_t* block, const uint64_t bytesRead, void* ctx)
+IOBuffer AsyncFileHasher::sReadBlockCallback(const uint8_t* block, const uint64_t bytesRead, void* ctx)
 {
   assert(ctx);
   Context* context = static_cast<Context*>(ctx);
   return context->hasher->readBlockCallback(block, static_cast<uint32_t>(bytesRead), context);
 }
 
-IOBuffer FileHasher::readBlockCallback(const uint8_t* block, const uint32_t bytesRead, Context* ctx)
+IOBuffer AsyncFileHasher::readBlockCallback(const uint8_t* block, const uint32_t bytesRead, Context* ctx)
 {
-  //LOG("->FileHasher::readBlockCallback: block 0x%p\n", block);
+  //LOG("->AsyncFileHasher::readBlockCallback: block 0x%p\n", block);
   assert(ctx);
   assert(bytesRead <= mBlockSize);
 
@@ -81,38 +81,38 @@ IOBuffer FileHasher::readBlockCallback(const uint8_t* block, const uint32_t byte
   status.buffer = mMemBlockPool.acquireMemBlock(OWNER_STAGE_READ, 0);
   status.bufferSize = mBlockSize;
   ctx->block = status.buffer; // Keep the new one to be released in the end.
-  //LOG("<-FileHasher::readBlockCallback\n");
+  //LOG("<-AsyncFileHasher::readBlockCallback\n");
   return status;
 }
 
-void FileHasher::sReadFinishCallback(void* ctx)
+void AsyncFileHasher::sReadFinishCallback(void* ctx)
 {
   assert(ctx);
   Context* context = static_cast<Context*>(ctx);
   context->hasher->readFinishCallback(context);
 }
 
-void FileHasher::readFinishCallback(Context* ctx)
+void AsyncFileHasher::readFinishCallback(Context* ctx)
 {
-  //LOG("->FileHasher::readFinishCallback\n");
+  //LOG("->AsyncFileHasher::readFinishCallback\n");
   assert(ctx);
 
   // Memory block isn't needed anymore for file reading
   mMemBlockPool.releaseMemBlock(ctx->block);
   delete ctx;
-  //LOG("<-FileHasher::readFinishCallback\n");
+  //LOG("<-AsyncFileHasher::readFinishCallback\n");
 }
 
-void FileHasher::sCalcBlockHashCallback(void* ctx)
+void AsyncFileHasher::sCalcBlockHashCallback(void* ctx)
 {
   assert(ctx);
   Context* context = static_cast<Context*>(ctx);
   context->hasher->calcBlockHashCallback(context);
 }
 
-void FileHasher::calcBlockHashCallback(Context* ctx)
+void AsyncFileHasher::calcBlockHashCallback(Context* ctx)
 {
-  //LOG("->FileHasher::calcBlockHashCallback\n");
+  //LOG("->AsyncFileHasher::calcBlockHashCallback\n");
   assert(ctx);
 
   size_t blockIdx = ctx->readOffset / mBlockSize;
@@ -132,19 +132,19 @@ void FileHasher::calcBlockHashCallback(Context* ctx)
     // The last block was calculated, it's time to reduce the results.
     mThreadPool.submitWork(sCalcFileHashCallback, ctx);
   }
-  //LOG("<-FileHasher::calcBlockHashCallback\n");
+  //LOG("<-AsyncFileHasher::calcBlockHashCallback\n");
 }
 
-void FileHasher::sCalcFileHashCallback(void* ctx)
+void AsyncFileHasher::sCalcFileHashCallback(void* ctx)
 {
   assert(ctx);
   Context* context = static_cast<Context*>(ctx);
   context->hasher->calcFileHashCallback(context);
 }
 
-void FileHasher::calcFileHashCallback(Context* ctx)
+void AsyncFileHasher::calcFileHashCallback(Context* ctx)
 {
-  //LOG("->FileHasher::calcFileHashCallback\n");
+  //LOG("->AsyncFileHasher::calcFileHashCallback\n");
   assert(ctx);
   assert(ctx->blockChain);
   for (const uint64_t blockHash : ctx->blockChain->hashBlocks)
@@ -157,5 +157,5 @@ void FileHasher::calcFileHashCallback(Context* ctx)
   // Release all context resources
   delete ctx->blockChain;
   delete ctx;
-  //LOG("<-FileHasher::calcFileHashCallback\n");
+  //LOG("<-AsyncFileHasher::calcFileHashCallback\n");
 }

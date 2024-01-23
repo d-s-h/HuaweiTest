@@ -8,10 +8,10 @@
 #include "ThreadPool.h"
 #include "MemBlockPool.h"
 
-class FileHasher
+class AsyncFileHasher
 {
 public:
-  FileHasher(uint32_t blockSize, uint32_t bufferBlockCount, ThreadPool& threadPool, IOPool& ioPool);
+  AsyncFileHasher(uint32_t blockSize, uint32_t bufferBlockCount, ThreadPool& threadPool, IOPool& ioPool);
 
   void setHashFunction(HashFunction* fn);
   void enqueue(FileInfo* fi);
@@ -31,7 +31,7 @@ private:
 
   struct Context
   {
-    FileHasher* hasher = nullptr;
+    AsyncFileHasher* hasher = nullptr;
     FileInfo* fileInfo = nullptr;
     const uint8_t* block = nullptr;
     uint32_t size = 0;

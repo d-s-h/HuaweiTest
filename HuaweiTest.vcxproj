@@ -132,7 +132,7 @@
     <ClCompile Include="AsyncFileComparer.cpp" />
     <ClCompile Include="AsyncMultiSet.cpp" />
     <ClCompile Include="DupFinder.cpp" />
-    <ClCompile Include="FileHasher.cpp" />
+    <ClCompile Include="AsyncFileHasher.cpp" />
     <ClCompile Include="IOPool.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="MemBlockPool.cpp" />
@@ -144,7 +144,7 @@
     <ClInclude Include="AsyncFileComparer.h" />
     <ClInclude Include="AsyncMultiSet.h" />
     <ClInclude Include="DupFinder.h" />
-    <ClInclude Include="FileHasher.h" />
+    <ClInclude Include="AsyncFileHasher.h" />
     <ClInclude Include="Hash.h" />
     <ClInclude Include="IOPool.h" />
     <ClInclude Include="MemBlockPool.h" />

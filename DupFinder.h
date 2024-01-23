@@ -1,12 +1,12 @@
 #pragma once
 
-#include <vector>
 #include <string>
+#include <vector>
 
-#include "ThreadPool.h"
-#include "IOPool.h"
-#include "FileHasher.h"
 #include "AsyncFileComparer.h"
+#include "AsyncFileHasher.h"
+#include "IOPool.h"
+#include "ThreadPool.h"
 
 class DupFinder
 {
@@ -21,6 +21,6 @@ public:
 private:
   ThreadPool mThreadPool;
   IOPool mIoPool;
-  FileHasher mFileHasher;
+  AsyncFileHasher mFileHasher;
   AsyncFileComparer mFileComparer;
 };
