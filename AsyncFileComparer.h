@@ -14,7 +14,10 @@ public:
   using FilePair = std::pair<const FileInfo*, const FileInfo*>;
   using Result = std::pair<FilePair, int>;
 
-  AsyncFileComparer(uint32_t blockSize, ThreadPool* threadPool, IOPool* ioPool);
+  AsyncFileComparer(uint32_t blockSize, int concurrentFilesLimit, ThreadPool& threadPool, IOPool& ioPool);
+  AsyncFileComparer(const AsyncFileComparer&) = delete;
+  AsyncFileComparer& operator=(const AsyncFileComparer&) = delete;
+
   bool enqueue(const FileInfo* fi1, const FileInfo* fi2);
   bool getResults(std::vector<Result>& results);
 
@@ -47,11 +50,11 @@ private:
   void compareBlocksWork(Context* ctx);
   void finishResult(const Result& result);
 
+  int mConcurrentFilesLimit = 0;
   std::atomic<int> mOutstandingRequests;
-  std::map<FilePair, int> mCompareResultMap;
   std::vector<Result> mResults;
-  ThreadPool* mThreadPool = nullptr;
-  IOPool* mIOPool = nullptr;
+  ThreadPool& mThreadPool;
+  IOPool& mIOPool;
   MemBlockPool mMemBlockPool;
 
   std::mutex mMutex;

@@ -6,10 +6,13 @@
 #include "ThreadPool.h"
 #include "IOPool.h"
 #include "FileHasher.h"
+#include "AsyncFileComparer.h"
 
 class DupFinder
 {
 public:
+  using Result = std::vector<std::vector<std::string>>;
+
   DupFinder(int concurrentIO, int workerThreads);
 
   void setHashFunction(HashFunction* func);
@@ -18,5 +21,6 @@ public:
 private:
   ThreadPool mThreadPool;
   IOPool mIoPool;
-  FileHasher mHasher;
+  FileHasher mFileHasher;
+  AsyncFileComparer mFileComparer;
 };

@@ -32,5 +32,4 @@ using FileInfoMap = std::unordered_multimap<uint64_t, FileInfo>;
 bool getCurrentDir(std::wstring& dir);
 bool setCurrentDir(const std::wstring& dir);
 void getFileInfoRecursive(const std::wstring& directoryPath, FileInfoMap& fileInfoMap, const std::wstring& relativePath);
-size_t compareFiles(const std::wstring& path1, const std::wstring& path2, int& compareResult);
 uint32_t getCurrentThreadId();

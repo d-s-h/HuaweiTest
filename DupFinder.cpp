@@ -92,10 +92,10 @@ bool operator== (SizeHashKey const& lhs, SizeHashKey const& rhs)
 
 
 
-void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet& set, ThreadPool& threadPool, IOPool& ioPool)
+void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet& set, AsyncFileComparer& fileComparer)
 {
   DataComparer comparer;
-  AsyncFileComparer fileComparer(FILE_BLOCK_SIZE, &threadPool, &ioPool);
+  
 
   std::vector<int> insertIdxList(files.size());
 
@@ -120,9 +120,6 @@ void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet& se
       const FileInfo* fi1 = files[e.first];
       const FileInfo* fi2 = files[e.second];
       fileComparer.enqueue(files[e.first], files[e.second]);
-
-      //int res = 0;
-      //size_t bytesRead = compareFiles(fi1->name, fi2->name, res);
     }
 
     fileComparer.getResults(results);
@@ -149,20 +146,26 @@ void findDupContent(const std::vector<const FileInfo*>& files, AsyncMultiSet& se
 
 }
 
-DupFinder::DupFinder(int concurrentIO, int workerThreads):
-  mThreadPool(workerThreads),
+// Assume that each IO request doesn't occupy a core
+DupFinder::DupFinder(int concurrentIO, int cpuCores):
+  mThreadPool(cpuCores),
   mIoPool(concurrentIO),
-  mHasher(FILE_BLOCK_SIZE, (workerThreads + concurrentIO) * 2, &mThreadPool, &mIoPool)
+  mFileHasher(FILE_BLOCK_SIZE, std::max(1, concurrentIO) * 2, mThreadPool, mIoPool),
+  mFileComparer(FILE_BLOCK_SIZE, std::max(1, concurrentIO) * 2, mThreadPool, mIoPool)
 {
+  // No auto-detection supported
+  assert(concurrentIO > 0);
+  assert(cpuCores > 0);
+  printf("DupFinder config: CPU cores = %d, IO = %d, Worker threads = %d\n", cpuCores, mIoPool.getConcurrentIOCount(), mThreadPool.getThreadCount());
 }
 
 void DupFinder::setHashFunction(HashFunction* func)
 {
-  mHasher.setHashFunction(func);
+  mFileHasher.setHashFunction(func);
 }
 
 // Yes, the copy elision is in place, but I'd like to improve API design of the func to pass the result back not as a copy.
-std::vector<std::vector<std::string>> DupFinder::findIdentical(const std::string& path)
+DupFinder::Result DupFinder::findIdentical(const std::string& path)
 {
 /*
   - Gather buckets of files with the same size
@@ -176,7 +179,7 @@ std::vector<std::vector<std::string>> DupFinder::findIdentical(const std::string
 */
 
   Profiler profileScope("findIdentical");
-  std::vector<std::vector<std::string>> result;
+  Result result;
 
 
   std::wstring oldDir;
@@ -229,7 +232,7 @@ std::vector<std::vector<std::string>> DupFinder::findIdentical(const std::string
 
           if (fi.size > 0)
           {
-            mHasher.enqueue(&fi);
+            mFileHasher.enqueue(&fi);
           }
           else
           {
@@ -240,7 +243,7 @@ std::vector<std::vector<std::string>> DupFinder::findIdentical(const std::string
         }
       }
     }
-    mHasher.calcHashes();
+    mFileHasher.calcHashes();
   }
 
   // Sets of same size/hash files
@@ -297,7 +300,7 @@ std::vector<std::vector<std::string>> DupFinder::findIdentical(const std::string
       int i = 0;
       if (e.files.size() > 1 && e.files[0]->size > 0)
       {
-        findDupContent(e.files, e.multiSet, mThreadPool, mIoPool);
+        findDupContent(e.files, e.multiSet, mFileComparer);
         int progress = static_cast<int>(100.0f * contentCompareProcessed / contentCompareGroups);
         printf("\rProgress %d%%", progress);
         ++contentCompareProcessed;

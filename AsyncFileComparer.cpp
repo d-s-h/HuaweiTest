@@ -2,57 +2,49 @@
 
 #include <cassert>
 
-AsyncFileComparer::AsyncFileComparer(uint32_t blockSize, ThreadPool* threadPool, IOPool* ioPool) :
+AsyncFileComparer::AsyncFileComparer(uint32_t blockSize, int concurrentFilesLimit, ThreadPool& threadPool, IOPool& ioPool) :
+  mConcurrentFilesLimit(concurrentFilesLimit),
   mThreadPool(threadPool),
   mIOPool(ioPool),
-  mMemBlockPool(blockSize, (threadPool->getThreadCount() + ioPool->getConcurrentIOCount()) * 4)
+  mMemBlockPool(blockSize, mConcurrentFilesLimit * 2) // Allocate twice more to avoid starving
 {
 }
 
 bool AsyncFileComparer::enqueue(const FileInfo* fi1, const FileInfo* fi2)
 {
-  //std::lock_guard<std::mutex> lock(mMutex);
+  // Allocate resources for a job
+  CompareRequest* req = new CompareRequest;
+  req->files[0] = fi1;
+  req->files[1] = fi2;
+  assert(req->files[0]->size == req->files[1]->size);
+  assert(fi1 != fi2);
+  // Total blocks to compare for two files
+  uint64_t size = req->files[0]->size;
+  int rem = size % mMemBlockPool.getBlockSize() > 0;
+  uint64_t totalBlocks = 2 * (size / mMemBlockPool.getBlockSize() + rem);
+  req->blocksToCompare = static_cast<int>(totalBlocks);
 
-  if (mCompareResultMap.find({ fi1, fi2 }) == mCompareResultMap.end())
+  const FileInfo* files[2] = { fi1, fi2 };
+
+  int submitJobsBlockLimit = mMemBlockPool.getBlockCount() / 2;
+  IOJob jobs[2];
+  for (uint32_t i = 0; i < 2; ++i)
   {
-    // Allocate all resources for a job
-    CompareRequest* req = new CompareRequest;
-    req->files[0] = fi1;
-    req->files[1] = fi2;
-    assert(req->files[0]->size == req->files[1]->size);
-    assert(fi1 != fi2);
-    // Total blocks to compare for two files
-    uint64_t size = req->files[0]->size;
-    int rem = size % mMemBlockPool.getBlockSize() > 0;
-    uint64_t totalBlocks = 2 * (size / mMemBlockPool.getBlockSize() + rem);
-    req->blocksToCompare = static_cast<int>(totalBlocks);
+    jobs[i].filename = files[i]->name;
+    jobs[i].buffer = mMemBlockPool.acquireMemBlock(UINT_MAX, submitJobsBlockLimit);
+    jobs[i].bufferSize = mMemBlockPool.getBlockSize();
+    jobs[i].blockReadCallback = sBlockReadCallback;
+    jobs[i].finishCallback = sReadFinishCallback;
+    jobs[i].ctx = new Context({ this, jobs[i].buffer, i, req });
 
-    const FileInfo* files[2] = { fi1, fi2 };
-
-    int submitJobsBlockLimit = mMemBlockPool.getBlockCount() / 2;
-    IOJob jobs[2];
-    for (uint32_t i = 0; i < 2; ++i)
-    {
-      jobs[i].filename = files[i]->name;
-      jobs[i].buffer = mMemBlockPool.acquireMemBlock(UINT_MAX, submitJobsBlockLimit);
-      jobs[i].bufferSize = mMemBlockPool.getBlockSize();
-      jobs[i].blockReadCallback = sBlockReadCallback;
-      jobs[i].finishCallback = sReadFinishCallback;
-      jobs[i].ctx = new Context({ this, jobs[i].buffer, i, req });
-
-      int jobId = mIOPool->submitJob(jobs[i]);
-      req->jobIds[i] = jobId; // Store job ids to be able to resume or abort reading ops.
-    }
-    WLOG(L"Job submitted: %s <> %s -> (%d, %d), buffers (0x%p, 0x%p)\n",
-      fi1->name.c_str(), fi2->name.c_str(), jobs[0].jobId, jobs[1].jobId, jobs[0].buffer, jobs[1].buffer);
-    ++mOutstandingRequests;
-    return true;
+    int jobId = mIOPool.submitJob(jobs[i]);
+    req->jobIds[i] = jobId; // Store job ids to be able to resume or abort reading ops.
   }
-  else
-  {
-    assert(0);
-  }
-  return false;
+  WLOG(L"Job submitted: %s <> %s -> (%d, %d), buffers (0x%p, 0x%p)\n",
+    fi1->name.c_str(), fi2->name.c_str(), jobs[0].jobId, jobs[1].jobId, jobs[0].buffer, jobs[1].buffer);
+
+  ++mOutstandingRequests;
+  return true;
 }
 
 bool AsyncFileComparer::getResults(std::vector<Result>& results)
@@ -113,7 +105,7 @@ IOStatus AsyncFileComparer::blockReadCallback(const uint8_t* block, const uint32
   ctx->memBlock = status.buffer; // Store to release it when reading is finished
 
   // Send IO to a pending state until blocks are compared
-  mIOPool->pause(req->jobIds[fileIdx]);
+  mIOPool.pause(req->jobIds[fileIdx]);
 
   req->compareBlocks[fileIdx] = block;  // pass this mem block to the compare job
   req->compareBlockSizes[fileIdx] = bytesRead;
@@ -127,7 +119,7 @@ IOStatus AsyncFileComparer::blockReadCallback(const uint8_t* block, const uint32
     {
       // Current blocks are the same size so need to compare by content
       Context* newCtx = new Context({ this, nullptr, 0, req });
-      mThreadPool->submitWork(sCompareBlocksWork, newCtx); // pass request data further
+      mThreadPool.submitWork(sCompareBlocksWork, newCtx); // pass request data further
     }
     else
     {
@@ -168,13 +160,13 @@ void AsyncFileComparer::compareBlocksWork(Context* ctx)
   if (compareResult == 0 && req->blocksToCompare > 0)
   {
     // Continue comparing
-    mIOPool->resume(req->jobIds[0]);
-    mIOPool->resume(req->jobIds[1]);
+    mIOPool.resume(req->jobIds[0]);
+    mIOPool.resume(req->jobIds[1]);
   }
   else
   {
-    mIOPool->abort(req->jobIds[0]);
-    mIOPool->abort(req->jobIds[1]);
+    mIOPool.abort(req->jobIds[0]);
+    mIOPool.abort(req->jobIds[1]);
     finishResult({ { req->files[0], req->files[1] }, { compareResult } });
     delete req;
   }

@@ -13,7 +13,7 @@
 
 struct Stats
 {
-  std::atomic<uint64_t> totalBytesRead = 0;
+  uint64_t totalBytesRead = 0;
 };
 
 Stats gStats;
@@ -55,6 +55,26 @@ struct FindSlotByKeyPred
   bool operator()(const FileIOData& data) const { return reinterpret_cast<ULONG_PTR>(data.fileHandle.get()) == key; }
   ULONG_PTR key = 0;
 };
+
+static inline int findFirstOne(unsigned int mask)
+{
+  for (int i = 0; i < sizeof(unsigned int) * 8; ++i) {
+    if (((mask >> i) & 1) == 1) {
+      return i;
+    }
+  }
+  // If no 0 is found, return -1 (indicating an error or a fully set mask)
+  return -1;
+}
+
+static inline int countSetBits(unsigned int mask) {
+  int count = 0;
+  while (mask) {
+    mask &= (mask - 1);
+    count++;
+  }
+  return count;
+}
 
 class IOPoolImpl
 {
@@ -142,6 +162,7 @@ int IOPool::getJobsQueued()
 IOPoolImpl::IOPoolImpl(int concurrentIoCount)
 {
   mConcurrentIoCount = concurrentIoCount;
+
   // Create an I/O Completion Port
   int threadCount = concurrentIoCount;
   mCompletionPort.reset(CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, threadCount));
@@ -331,26 +352,6 @@ bool IOPoolImpl::kickOffJob(const IOJob& job, int ioDataIdx)
 
   WLOG(L"<-IOPoolImpl::kickOffJob\n");
   return true;
-}
-
-int findFirstOne(unsigned int mask)
-{
-  for (int i = 0; i < sizeof(unsigned int) * 8; ++i) {
-    if (((mask >> i) & 1) == 1) {
-      return i;
-    }
-  }
-  // If no 0 is found, return -1 (indicating an error or a fully set mask)
-  return -1;
-}
-
-int countSetBits(unsigned int mask) {
-  int count = 0;
-  while (mask) {
-    mask &= (mask - 1);
-    count++;
-  }
-  return count;
 }
 
 void IOPoolImpl::ioDispatcherThread()

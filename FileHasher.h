@@ -2,21 +2,23 @@
 
 #include <mutex>
 
+#include "Hash.h"
+#include "IOPool.h"
 #include "Platform.h"
 #include "ThreadPool.h"
-#include "IOPool.h"
-#include "Hash.h"
+#include "MemBlockPool.h"
 
 class FileHasher
 {
 public:
-  FileHasher(uint32_t blockSize, uint32_t bufferBlockCount, ThreadPool* threadPool, IOPool* ioPool);
+  FileHasher(uint32_t blockSize, uint32_t bufferBlockCount, ThreadPool& threadPool, IOPool& ioPool);
 
   void setHashFunction(HashFunction* fn);
   void enqueue(FileInfo* fi);
   void calcHashes();
 
 private:
+  // Debug purpose
   static constexpr uint8_t OWNER_STAGE_SUBMIT = 1;
   static constexpr uint8_t OWNER_STAGE_READ = 2;
 
@@ -47,18 +49,15 @@ private:
   void calcBlockHashCallback(Context* ctx);
   void calcFileHashCallback(Context* ctx);
 
-  uint8_t* acquireMemBlock(uint8_t ownerId, int limit);
-  void releaseMemBlock(const uint8_t* block);
-
   uint32_t mBlockSize = 0;
-  uint32_t mBufferBlockCount = 0;
-  ThreadPool* mThreadPool = nullptr;
-  IOPool* mIOPool = nullptr;
-  std::mutex mMutex;
-  std::condition_variable mCondition;
+  uint32_t mConcurrentFilesLimit = 0;
+  ThreadPool& mThreadPool;
+  IOPool& mIOPool;
+  MemBlockPool mMemBlockPool;
   std::vector<FileInfo*> mFiles;
-  std::vector<uint8_t> mFreeBufferBlocks;
-  std::vector<uint8_t> mBuffer;
   std::atomic<int> mProcessedFiles;
   HashFunction* mHashFunction = nullptr;
+
+  std::mutex mMutex;
+  std::condition_variable mCondition;
 };
